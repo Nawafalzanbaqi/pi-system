@@ -1,0 +1,43 @@
+# ===========================================================================
+# pi-system module: web-analytics (nextjs-app) — tracker env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: web-analytics).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh, which picks
+# up every services/__PROJECT_NAME__/__PROJECT_NAME__.*.compose.yml. This fragment
+# adds NO new container and NO host ports — it only MERGES the analytics env into
+# the project's existing Next.js service so the server-rendered snippet has its
+# values. (Compose unions service `environment` maps across files; later wins.)
+#
+# Both vars default to BLANK, which keeps the tracker OFF (the Analytics component
+# renders nothing) — analytics is strictly opt-in. Fill them in .env to enable it:
+#
+#   ANALYTICS_SCRIPT_URL  the self-hosted tracker, e.g.
+#                         https://analytics.${BASE_DOMAIN}/script.js  (one shared
+#                         value for all your sites — the platform analytics service)
+#   ANALYTICS_SITE_ID     THIS site's "website id" from the Umami dashboard. It is
+#                         read first from a PER-PROJECT override
+#                         (__ENVPREFIX__ANALYTICS_SITE_ID) so each site you host can
+#                         have its own id, falling back to a shared ANALYTICS_SITE_ID.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__:
+    environment:
+      ANALYTICS_SCRIPT_URL: ${ANALYTICS_SCRIPT_URL:-}
+      ANALYTICS_SITE_ID: ${__ENVPREFIX__ANALYTICS_SITE_ID:-${ANALYTICS_SITE_ID:-}}
+
+# ---------------------------------------------------------------------------
+# Shared networks — declared so this fragment merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). Names MUST match the base file. The
+# service block above lists no `networks:` key, so the base service keeps its own
+# (internal + proxy); these are only here for IPAM consistency on merge.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

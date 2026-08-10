@@ -1,0 +1,72 @@
+# ===========================================================================
+# pi-system module declaration — see ../README.md for the full contract.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: bookings
+
+# One line describing what the module does.
+description: Appointment / reservation scheduling — services, available time slots, and bookings with double-booking prevention.
+
+# implemented = the generator composes it in. planned = skipped + recorded as a TODO.
+status: implemented
+
+# Base shapes this module supports (comma-separated, or "all").
+# It composes for EVERY base, but each base gets DIFFERENT pieces (per-base files/
+# subtrees below):
+#   dotnet-api  -> the bookings API only (it is an API base; a separate client
+#                  consumes it).
+#   fullstack   -> the bookings API in the backend AND the booking UI in the
+#                  frontend — the fully wired, end-to-end shape (used by the
+#                  clinic and real-estate presets).
+#   nextjs-app  -> the booking UI only; it needs a separate bookings API. This is
+#                  a documented integration point (set BOOKINGS_API_URL), NOT a
+#                  broken reference — the UI degrades gracefully until it is wired.
+base_compatible: all
+
+# Database engine this module needs: postgres | mysql | mongo | none.
+# Bookings is a relational feature (services -> slots -> bookings, with a
+# transactional anti-double-booking check), so it targets the PROJECT's own
+# relational database, reached BY SERVICE NAME via ConnectionStrings__Default
+# (built by the generator from the shared .env credentials — no secrets here, no
+# dedicated DB container). It is fully functional with `--db postgres` (the
+# default for the clinic and real-estate presets). For `--db mysql`, `mongo` or
+# `none` it degrades gracefully and documents the fallback — see this module's
+# README ("Database & fallbacks"); the .NET backend stays healthy and the booking
+# endpoints report that the feature is unavailable rather than crashing.
+database: postgres
+
+# External account / approved API keys required to activate, or "none".
+# Bookings is self-contained — no third-party service, no merchant account.
+external_credentials: none
+
+# Env vars this module needs, as EMPTY templates (names only), or "none".
+#   BOOKINGS_API_URL  OPTIONAL override for where the booking API lives. Normally
+#                     unset: the fullstack frontend already reaches the backend via
+#                     BACKEND_URL, and the dotnet-api base IS the API. Set it (and
+#                     pass it into the web container) only for a nextjs-app base
+#                     that pairs with a separate bookings backend — see env.example
+#                     and the README's "nextjs-app integration" note.
+env: BOOKINGS_API_URL
+
+# Source files this module layers onto the project (relative path), or "none".
+# Per-base subtrees only (no generic tree), so each base gets exactly its pieces:
+# files/dotnet-api (backend), files/fullstack (backend + frontend), files/nextjs-app
+# (frontend). The generator picks files/<base>/ and substitutes the placeholders.
+# These are ADDITIVE except the backend's Program.cs / app.csproj, which REPLACE
+# the base's (to wire the API + add the Npgsql dependency) — the same "files may
+# replace base files" mechanism i18n-bilingual uses for the root layout.
+files: files
+
+# Compose fragment this module contributes (relative path), or "none".
+# None: bookings adds NO new container. The API runs INSIDE the base's existing
+# .NET service and connects to the project's own database; the UI runs inside the
+# base's existing Next.js service. (Contrast content-admin, which ships a service.)
+compose: none
+
+# Caddy snippet this module adds to the project's site block (relative path), or "none".
+# None: the booking API lives under the existing service's routes (/api/bookings/*)
+# and the UI under its existing routes (/booking, /<locale>/booking) — both are
+# already fronted by the project's base reverse_proxy. No new host ports or routes.
+caddy_routes: none

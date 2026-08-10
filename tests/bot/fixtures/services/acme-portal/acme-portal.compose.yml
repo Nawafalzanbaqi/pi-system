@@ -1,0 +1,10 @@
+# Fixture: a GENERATED project. The marker line below is what bot-lib's
+# bot_list_projects (and the real status.sh / startup-lib) use to tell a
+# scaffolded project apart from a platform service dir. Not a runnable service.
+# pi-system-subdomain: acme
+# pi-system-db: postgres
+name: pi-system
+services:
+  acme-portal:
+    image: busybox:1.36
+    command: ["true"]

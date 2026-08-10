@@ -1,0 +1,44 @@
+# ===========================================================================
+# pi-system sector preset — DECLARATION ONLY (no app code). See ../README.md.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: company-site
+
+# One line describing the sector this preset targets.
+description: Company marketing site — pages, about, services, contact (bilingual).
+
+# available — every module this preset composes is implemented (content-admin +
+# i18n-bilingual + web-analytics + seo-toolkit; no credentialed modules — this stays
+# a clean public marketing site).
+status: available
+
+# Base shape this preset uses: dotnet-api | nextjs-app | fullstack.
+# A marketing site is frontend-led, so the lighter nextjs-app base fits.
+base: nextjs-app
+
+# Default database engine (overridable with --db). Used by the content-admin module.
+database: postgres
+
+# Default locale ar|en (overridable with --locale). ar => RTL by default.
+default_locale: ar
+
+# Modules this preset composes, in order. All four are implemented (composed in now).
+# web-analytics is included because a marketing site / PORTFOLIO is exactly where you
+# want to see visitors, sources and clicks — and it is the operator's OWN portfolio
+# that is the primary first use of the analytics feature. It stays OPTIONAL and
+# strictly opt-in: the snippet renders nothing until ANALYTICS_* is set in .env (and
+# you can drop it from this list if a given site should not be measured).
+# seo-toolkit is included because a marketing site / portfolio is exactly where SEO
+# matters most — it adds the on-page SEO defaults (meta + Open Graph, a bilingual
+# sitemap.xml & robots.txt, JSON-LD) the SEO auditor (services/seo) then checks. It
+# needs no credentials and cooperates with i18n.
+# auth-sso is DELIBERATELY omitted: a public marketing site needs no login, and the
+# auth-sso module is optional — never forced. (Add it explicitly with
+# `--modules auth-sso` only if a particular site needs a gated area.)
+#   content-admin    implemented (composed in — Directus headless CMS)
+#   i18n-bilingual   implemented (composed in — Arabic/English + RTL)
+#   web-analytics    implemented (composed in — privacy-first, self-hosted; opt-in via .env)
+#   seo-toolkit      implemented (composed in — on-page SEO defaults; bilingual; no creds)
+modules: content-admin, i18n-bilingual, web-analytics, seo-toolkit

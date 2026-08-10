@@ -1,0 +1,46 @@
+# ===========================================================================
+# pi-system module: auth-sso (nextjs-app) — OIDC login env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: auth-sso).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh, which picks
+# up every services/__PROJECT_NAME__/__PROJECT_NAME__.*.compose.yml. This fragment
+# adds NO new container and NO host ports — it only MERGES OIDC environment into
+# the project's existing Next.js service so the login flow has its settings.
+#
+# Compose merges service `environment` maps across files (union; later wins), so
+# re-declaring __PROJECT_NAME__ with extra env keys just augments the base service.
+# The client id/secret + APP_SECRET (session encryption key) are ALREADY passed by
+# the base from this project's per-project .env slots — we add only the realm
+# issuer and the public URLs (derived from the subdomain; override via .env).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__:
+    environment:
+      # The Keycloak realm URL, e.g. https://auth.<domain>/realms/<realm>. Blank =>
+      # auth OFF (the /api/auth/* routes return 503; the rest of the app is fine).
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      # Public base URL + login callback + post-logout, derived from the subdomain.
+      # The callback lives under /api/auth/* (skipped by the i18n middleware).
+      OIDC_APP_BASE_URL: ${OIDC_APP_BASE_URL:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}/api/auth/callback}
+      OIDC_POST_LOGOUT_REDIRECT_URI: ${OIDC_POST_LOGOUT_REDIRECT_URI:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}/}
+      OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email}
+      # Allow the local Caddy internal-CA cert during *.localhost testing only.
+      OIDC_REQUIRE_HTTPS_METADATA: ${OIDC_REQUIRE_HTTPS_METADATA:-true}
+
+# ---------------------------------------------------------------------------
+# Shared networks — declared so this fragment merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). Names MUST match the base file. The
+# service block above lists no `networks:` key, so the base service keeps its own
+# (internal + proxy); these are only here for IPAM consistency on merge.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

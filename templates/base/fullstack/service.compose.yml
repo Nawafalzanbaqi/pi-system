@@ -1,0 +1,101 @@
+# ===========================================================================
+# pi-system — project "__PROJECT_NAME__" (full-stack: Next.js + .NET)
+# Generated __GENERATED_DATE__ by scripts/new-project.sh from template "__TEMPLATE__".
+# ---------------------------------------------------------------------------
+# Two services that make up one project:
+#
+#   __PROJECT_NAME__-api  -> .NET Web API. INTERNAL-ONLY (no `proxy`, no host
+#                            ports). Reached by the frontend over the internal
+#                            network as "__PROJECT_NAME__-api:8080". Connects to
+#                            the "__DB_ENGINE__" database (service "__DB_HOST__").
+#   __PROJECT_NAME__-web  -> Next.js frontend. On BOTH networks: `internal` (to
+#                            call the API by service name) and `proxy` (so Caddy
+#                            fronts it at __SUBDOMAIN__.${BASE_DOMAIN}). No host
+#                            ports.
+#
+# Bring it up with the helper (passes the base compose so the shared networks
+# resolve, and builds both images):
+#     ./scripts/project.sh up __PROJECT_NAME__
+# Start its database first (if any):  ./scripts/db.sh __DB_ENGINE__ up
+# Make sure Caddy is running:         ./scripts/start-proxy.sh
+#
+# Machine-readable metadata (used by scripts/project.sh — do not remove):
+# pi-system-subdomain: __SUBDOMAIN__
+# pi-system-db: __DB_ENGINE__
+#
+# HARD RULES (see infrastructure/docker-compose.yml): ARM64 images, multi-stage
+# builds, pinned base tags (never "latest"), NO secrets in this file (values
+# come from .env), NO host ports (only the frontend is reachable, via Caddy).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # --- Backend: .NET Web API (internal-only) -------------------------------
+  __PROJECT_NAME__-api:
+    build:
+      context: ./services/__PROJECT_NAME__/backend
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}___PROJECT_NAME__-api
+    restart: unless-stopped
+    networks:
+      - internal      # internal-only; reached as "__PROJECT_NAME__-api:8080"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_HTTP_PORTS: "8080"
+      # Base bilingual convention: default locale (ar|en) stamped at scaffold time.
+      DEFAULT_LOCALE: "__DEFAULT_LOCALE__"
+      # Connection string to the chosen DB, assembled by the generator from the
+      # SHARED database credentials in .env (empty when DB engine is "none").
+      ConnectionStrings__Default: "__DB_CONNECTION_STRING__"
+      APP_SECRET: ${__ENVPREFIX__APP_SECRET:-}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # --- Frontend: Next.js (web-facing) --------------------------------------
+  __PROJECT_NAME__-web:
+    build:
+      context: ./services/__PROJECT_NAME__/frontend
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}___PROJECT_NAME__-web
+    restart: unless-stopped
+    depends_on:
+      - __PROJECT_NAME__-api      # start order only (same compose file)
+    networks:
+      - internal      # call the API by service name over the internal network
+      - proxy         # fronted by Caddy at __SUBDOMAIN__.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: "production"
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      # Base bilingual convention: default locale (ar|en) stamped at scaffold time.
+      DEFAULT_LOCALE: "__DEFAULT_LOCALE__"
+      NEXT_PUBLIC_DEFAULT_LOCALE: "__DEFAULT_LOCALE__"
+      # Internal address of the backend — service name on the internal network.
+      BACKEND_URL: "http://__PROJECT_NAME__-api:8080"
+      APP_SECRET: ${__ENVPREFIX__APP_SECRET:-}
+      OIDC_CLIENT_ID: ${__ENVPREFIX__OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${__ENVPREFIX__OIDC_CLIENT_SECRET:-}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this fragment merges cleanly with the base
+# compose file (which supplies the subnet/IPAM). The names MUST match the base
+# file — do NOT invent new networks.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

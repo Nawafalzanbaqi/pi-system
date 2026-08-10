@@ -1,0 +1,82 @@
+# ===========================================================================
+# pi-system module declaration — see ../README.md for the full contract.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: auth-sso
+
+# One line describing what the module does.
+description: Single sign-on — puts a project behind the platform's Keycloak via OIDC (Authorization Code + PKCE on the frontend, JWT bearer validation on the backend).
+
+# implemented = the generator composes it in. planned = skipped + recorded as a TODO.
+status: implemented
+
+# Base shapes this module supports (comma-separated, or "all").
+# It composes for EVERY base, but each base gets DIFFERENT pieces (per-base files/
+# and compose/ fragments below):
+#   nextjs-app  -> the FRONTEND login: OIDC Authorization Code + PKCE, an encrypted
+#                  session cookie, login/logout/callback routes and a protected
+#                  route example. (A protected backend it talks to is optional.)
+#   dotnet-api  -> the BACKEND resource server: JWT bearer validation against the
+#                  realm's JWKS (issuer + audience + signing key) and an example
+#                  protected endpoint. A separate client drives the login.
+#   fullstack   -> BOTH halves wired end to end — the Next.js login in the frontend
+#                  AND JWT validation in the .NET backend (the clinic / real-estate
+#                  shape: staff log in, the API trusts their token).
+base_compatible: all
+
+# Database engine this module needs: postgres | mysql | mongo | none.
+# None. Identity lives in Keycloak (its own isolated database, already running);
+# auth-sso stores no user data of its own — the frontend session is a short-lived,
+# encrypted, signed cookie and the backend is stateless (validates tokens per call).
+database: none
+
+# External account / approved API keys required to activate, or "none".
+# None in the third-party sense: it uses the PLATFORM'S OWN Keycloak (service
+# "keycloak" at auth.${BASE_DOMAIN}, already deployed). The only manual step is a
+# ONE-TIME, operator-run Keycloak console action (create a realm/client per
+# project) — that is code-free configuration of an existing service, not an
+# external merchant account. It is documented in this module's SETUP.md and
+# deferred to the final manual session; the generated code needs no credentials to
+# build.
+external_credentials: none
+
+# Env vars this module needs, as EMPTY templates (names only), or "none".
+# The generator appends these (blank) to the project's .env.example section.
+#   OIDC_ISSUER_URL                the realm URL, e.g. https://auth.<domain>/realms/<realm>
+#                                  (one realm can serve many projects). REQUIRED to turn auth on.
+#   OIDC_AUDIENCE                  expected JWT "aud" the backend accepts (defaults to the
+#                                  project's OIDC client id — see SETUP.md's audience mapper note).
+#   OIDC_REDIRECT_URI             OPTIONAL override of the login callback URL. Left blank the
+#                                  compose fragment derives https://<subdomain>.<domain>/api/auth/callback.
+#   OIDC_POST_LOGOUT_REDIRECT_URI OPTIONAL override of where to land after logout (derived too).
+# The per-project CLIENT ID + SECRET reuse the base's existing per-project slots
+# (<PREFIX>_OIDC_CLIENT_ID / <PREFIX>_OIDC_CLIENT_SECRET) already in .env.example —
+# auth-sso does NOT duplicate them (see this module's README, "Environment").
+env: OIDC_ISSUER_URL, OIDC_AUDIENCE, OIDC_REDIRECT_URI, OIDC_POST_LOGOUT_REDIRECT_URI
+
+# Source files this module layers onto the project (relative path), or "none".
+# Per-base subtrees only (no generic tree): files/nextjs-app and files/fullstack
+# ship the Next.js OIDC client; files/dotnet-api and files/fullstack ship the .NET
+# resource server. The .NET half is ADDITIVE — it adds Auth/OidcHostingStartup.cs
+# (an [assembly:HostingStartup] that wires JWT validation + the protected endpoint)
+# and a Directory.Build.props (adds the JwtBearer package) WITHOUT replacing the
+# base's Program.cs / app.csproj — so it composes cleanly with bookings, which DOES
+# own those files. See the README, "How it composes with other modules".
+files: files
+
+# Compose fragment this module contributes (relative path), or "none".
+# A DIRECTORY of per-base fragments (compose/<base>.compose.yml) — the same per-base
+# idea as files/<base>/. Each fragment MERGES OIDC env into the project's existing
+# service(s) (whose names differ by base: <name> vs <name>-api / <name>-web); it
+# adds NO new container and NO host ports. The frontend gets the issuer + the
+# subdomain-derived redirect/post-logout URLs; the backend gets the issuer +
+# audience and the env flag that activates its HostingStartup.
+compose: compose
+
+# Caddy snippet this module adds to the project's site block (relative path), or "none".
+# None: login/logout/callback live under the app's own /api/auth/* routes and the
+# protected pages under its existing routes — all already fronted by the project's
+# base reverse_proxy. No new host ports or routes.
+caddy_routes: none

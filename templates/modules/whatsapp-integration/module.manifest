@@ -1,0 +1,81 @@
+# ===========================================================================
+# pi-system module declaration — see ../README.md for the full contract.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: whatsapp-integration
+
+# One line describing what the module does.
+description: Send WhatsApp messages (notifications + templates) via a swappable provider — a mock by default, the WhatsApp Cloud API (Meta) when credentials are supplied.
+
+# implemented = the generator composes it in. planned = skipped + recorded as a TODO.
+status: implemented
+
+# Base shapes this module supports (comma-separated, or "all").
+# It composes for EVERY base, but each base gets DIFFERENT pieces (per-base files/
+# and compose/ fragments below):
+#   dotnet-api  -> the .NET sender SERVICE + example endpoints (send, webhook
+#                  verify, inbound webhook). It is an API base; other services /
+#                  flows call it to send messages.
+#   fullstack   -> the .NET sender in the backend (the source of truth) AND a
+#                  Next.js server-side helper in the frontend that calls it. The
+#                  end-to-end shape used by the clinic / real-estate presets.
+#   nextjs-app  -> a self-contained Next.js (server-side) sender — the SAME
+#                  swappable provider implemented in JS so the flow runs with no
+#                  .NET backend. (A separate backend is an optional integration
+#                  point, not required — see this module's README.)
+base_compatible: all
+
+# Database engine this module needs: postgres | mysql | mongo | none.
+# None. Sending a message is a stateless outbound call to the provider; this module
+# stores nothing of its own. (Delivery-status logging would need a DB, but it is
+# intentionally out of scope here — the mock and the Cloud API both return a message
+# id the caller can log via its own storage if it wants. See the README.)
+database: none
+
+# External account / approved API keys required to activate, or "none".
+# REQUIRED to go LIVE — but NOT to build or run: the default `mock` provider needs
+# nothing, so the whole flow is testable now with zero external accounts. Switching
+# WHATSAPP_PROVIDER to `cloud_api` requires a Meta / WhatsApp Business account: a
+# phone number id, a permanent access token, and (for inbound webhooks) a verify
+# token + app secret. These are DEFERRED, one-time, operator-run steps — see this
+# module's SETUP.md. The real Cloud API provider is fully coded but stays INERT
+# until those env values are present.
+external_credentials: required — Meta / WhatsApp Business account: WHATSAPP_PHONE_NUMBER_ID + WHATSAPP_ACCESS_TOKEN (+ WHATSAPP_VERIFY_TOKEN / WHATSAPP_APP_SECRET for inbound webhooks). See SETUP.md. Not needed for the default mock provider.
+
+# Env vars this module needs, as EMPTY templates (names only), or "none".
+# The generator appends these (blank) to the project's .env.example section. Left
+# blank, the provider defaults to `mock` (the compose fragments use ${VAR:-mock}),
+# so the flow works with no credentials. All are filled in .env (never committed):
+#   WHATSAPP_PROVIDER         mock | cloud_api  (blank => mock — the safe default)
+#   WHATSAPP_PHONE_NUMBER_ID  Cloud API: the business phone number id (from Meta)
+#   WHATSAPP_ACCESS_TOKEN     Cloud API: a permanent access token (from Meta)
+#   WHATSAPP_VERIFY_TOKEN     inbound webhook: the token you choose + register with Meta
+#   WHATSAPP_APP_SECRET       inbound webhook: the Meta App secret (verifies X-Hub-Signature-256)
+#   WHATSAPP_API_VERSION      Cloud API graph version (optional; defaults to a pinned version)
+env: WHATSAPP_PROVIDER, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_API_VERSION
+
+# Source files this module layers onto the project (relative path), or "none".
+# Per-base subtrees only (no generic tree), so each base gets exactly its pieces:
+# files/dotnet-api (.NET sender), files/fullstack (.NET sender + JS helper),
+# files/nextjs-app (JS sender). The .NET half is ADDITIVE — it ships a
+# Whatsapp/WhatsappHostingStartup.cs ([assembly:HostingStartup]) that registers the
+# sender + example endpoints WITHOUT replacing the base's Program.cs / app.csproj —
+# so it composes cleanly with bookings (which owns those files) and auth-sso.
+files: files
+
+# Compose fragment this module contributes (relative path), or "none".
+# A DIRECTORY of per-base fragments (compose/<base>.compose.yml) — the same per-base
+# idea as files/<base>/. Each fragment MERGES the WHATSAPP_* env into the project's
+# existing service(s) (whose names differ by base: <name> vs <name>-api / <name>-web)
+# and, for the .NET bases, sets ASPNETCORE_HOSTINGSTARTUPASSEMBLIES=app to activate
+# the additive sender. It adds NO new container and NO host ports.
+compose: compose
+
+# Caddy snippet this module adds to the project's site block (relative path), or "none".
+# None: the send + webhook routes live under the app's own /api/whatsapp/* routes,
+# already fronted by the project's base reverse_proxy. No new host ports or routes.
+# (The inbound webhook URL you register with Meta is just
+#  https://<subdomain>.<BASE_DOMAIN>/api/whatsapp/webhook — see SETUP.md.)
+caddy_routes: none

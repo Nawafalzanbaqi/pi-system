@@ -1,0 +1,140 @@
+# ===========================================================================
+# pi-system — CONTROL API (secure backend for the future web control panel)
+# ---------------------------------------------------------------------------
+# An API-ONLY Next.js service (route handlers under app/api; NO UI) that the
+# web control panel will call to (A) monitor/control the platform and (B) manage
+# integration credentials in .env. It is the secure middle tier; this part builds
+# the API + its security only.
+#
+# SECURITY POSTURE (see services/control-api/README.md + docs/README.md):
+#   * Every endpoint except GET /api/health requires a valid Keycloak JWT;
+#     all writes/actions/config-changes additionally require the operator role.
+#   * It is NEVER given the Docker socket. Control + restart actions run on the
+#     host EXCLUSIVELY through the audited bot-exec.sh bridge over SSH (a dedicated
+#     forced-command key) — the SAME constrained path the Telegram bot uses.
+#   * It manages ONLY the allowlisted .env keys in config-registry.json; it backs
+#     up .env before every atomic write and never returns/logs secret values.
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) image only — this runs on a Pi 5. node:22-alpine is
+#     multi-arch incl. linux/arm64.
+#   * Image built from a pinned base (never "latest"); NO secrets baked in — all
+#     configuration comes from the root .env (CONTROL API section of .env.example).
+#   * Internal-only DB-style isolation: on `internal` + `proxy`, NO host ports,
+#     reachable only through Caddy at api.${BASE_DOMAIN}.
+#
+# Bring it up with the helper (passes the base compose so the shared networks
+# resolve, and builds the image):
+#     ./scripts/control-api.sh up
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  control-api:
+    build:
+      context: ./services/control-api
+      dockerfile: Dockerfile
+      args:
+        # Client-visible (NEXT_PUBLIC_*) values are inlined at BUILD time by Next,
+        # so the panel's vitals poll interval is a build arg (default 5000ms).
+        NEXT_PUBLIC_CONTROL_PANEL_POLL_MS: ${NEXT_PUBLIC_CONTROL_PANEL_POLL_MS:-5000}
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_control-api
+    restart: unless-stopped
+    # Run as the host user that OWNS .env (chmod 600) so the config manager can
+    # write it. Defaults to the typical Pi user (1000:1000); override in .env.
+    user: "${CONTROL_API_UID:-1000}:${CONTROL_API_GID:-1000}"
+    networks:
+      - internal      # talk to nothing by default; here for parity/future use
+      - proxy         # fronted by Caddy at api.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: "production"
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      TZ: ${TZ:-UTC}
+      # --- Keycloak / OIDC trust anchors (DEFERRED one-time setup) -----------
+      # Create a Keycloak client for the control panel, then set these in .env.
+      CONTROL_API_OIDC_ISSUER: ${CONTROL_API_OIDC_ISSUER:-}
+      CONTROL_API_OIDC_AUDIENCE: ${CONTROL_API_OIDC_AUDIENCE:-}
+      CONTROL_API_OIDC_JWKS_URI: ${CONTROL_API_OIDC_JWKS_URI:-}
+      CONTROL_API_OPERATOR_ROLE: ${CONTROL_API_OPERATOR_ROLE:-operator}
+      # --- Browser login for the panel UI (part #2) — server-side BFF ---------
+      # Tokens stay in an httpOnly encrypted session cookie; the browser never
+      # sees them. SESSION_SECRET is REQUIRED for login to work (fails closed).
+      CONTROL_API_OIDC_CLIENT_ID: ${CONTROL_API_OIDC_CLIENT_ID:-}
+      CONTROL_API_OIDC_CLIENT_SECRET: ${CONTROL_API_OIDC_CLIENT_SECRET:-}
+      CONTROL_API_OIDC_REDIRECT_URI: ${CONTROL_API_OIDC_REDIRECT_URI:-}
+      CONTROL_API_OIDC_APP_BASE_URL: ${CONTROL_API_OIDC_APP_BASE_URL:-}
+      CONTROL_API_OIDC_POST_LOGOUT_REDIRECT_URI: ${CONTROL_API_OIDC_POST_LOGOUT_REDIRECT_URI:-}
+      CONTROL_API_OIDC_SCOPE: ${CONTROL_API_OIDC_SCOPE:-}
+      CONTROL_API_SESSION_SECRET: ${CONTROL_API_SESSION_SECRET:-}
+      CONTROL_API_OIDC_SESSION_MAX_AGE: ${CONTROL_API_OIDC_SESSION_MAX_AGE:-}
+      # --- The .env this API manages + where backups/audit live -------------
+      CONTROL_API_ENV_FILE: "/workspace/.env"
+      CONTROL_API_ENV_EXAMPLE: "/workspace/.env.example"
+      CONTROL_API_BACKUP_DIR: "/workspace/data/control-api/env-backups"
+      CONTROL_API_AUDIT_LOG: "/workspace/data/control-api/audit.log"
+      CONTROL_API_REGISTRY: "/app/config-registry.json"
+      # --- Constrained execution bridge (SSH forced-command, like the bot) ---
+      CONTROL_API_BRIDGE_MODE: ${CONTROL_API_BRIDGE_MODE:-ssh}
+      CONTROL_API_BRIDGE_SSH_HOST: ${CONTROL_API_BRIDGE_SSH_HOST:-}
+      CONTROL_API_BRIDGE_SSH_USER: ${CONTROL_API_BRIDGE_SSH_USER:-}
+      CONTROL_API_BRIDGE_SSH_PORT: ${CONTROL_API_BRIDGE_SSH_PORT:-22}
+      CONTROL_API_BRIDGE_SSH_KEY: ${CONTROL_API_BRIDGE_SSH_KEY:-/app/secrets/bridge_key}
+      # --- Project GENERATION bridge (its OWN dedicated forced-command key) ----
+      # Project creation (POST /api/projects) reaches the host through the SIBLING
+      # bot-exec-generate.sh, pinned to a SEPARATE key (one key = one forced
+      # command). Host/user/port default to the main bridge's (same Pi); the key
+      # MUST be its own. Larger timeout — scaffolding + compose validation is slower.
+      CONTROL_API_GENERATE_BRIDGE_MODE: ${CONTROL_API_GENERATE_BRIDGE_MODE:-${CONTROL_API_BRIDGE_MODE:-ssh}}
+      CONTROL_API_GENERATE_BRIDGE_SSH_HOST: ${CONTROL_API_GENERATE_BRIDGE_SSH_HOST:-${CONTROL_API_BRIDGE_SSH_HOST:-}}
+      CONTROL_API_GENERATE_BRIDGE_SSH_USER: ${CONTROL_API_GENERATE_BRIDGE_SSH_USER:-${CONTROL_API_BRIDGE_SSH_USER:-}}
+      CONTROL_API_GENERATE_BRIDGE_SSH_PORT: ${CONTROL_API_GENERATE_BRIDGE_SSH_PORT:-${CONTROL_API_BRIDGE_SSH_PORT:-22}}
+      CONTROL_API_GENERATE_BRIDGE_SSH_KEY: ${CONTROL_API_GENERATE_BRIDGE_SSH_KEY:-/app/secrets/generate_bridge_key}
+      CONTROL_API_GENERATE_BRIDGE_TIMEOUT_MS: ${CONTROL_API_GENERATE_BRIDGE_TIMEOUT_MS:-300000}
+      # --- Throttling for state-changing + config-writing endpoints ---------
+      CONTROL_API_RATE_WINDOW_MS: ${CONTROL_API_RATE_WINDOW_MS:-60000}
+      CONTROL_API_RATE_MAX: ${CONTROL_API_RATE_MAX:-20}
+      # Read endpoints (Monitoring/Growth live feeds) — generous separate bucket.
+      CONTROL_API_READ_RATE_WINDOW_MS: ${CONTROL_API_READ_RATE_WINDOW_MS:-60000}
+      CONTROL_API_READ_RATE_MAX: ${CONTROL_API_READ_RATE_MAX:-300}
+      # --- Privacy-first analytics summary (Umami, server-side, read-only) ---
+      # OPTIONAL. When all four are set, GET /api/growth/analytics returns a
+      # cookie-less summary fetched from the self-hosted Umami over the INTERNAL
+      # network (umami:3000). Credentials stay here — NEVER sent to the browser.
+      CONTROL_API_ANALYTICS_UMAMI_URL: ${CONTROL_API_ANALYTICS_UMAMI_URL:-}
+      CONTROL_API_ANALYTICS_UMAMI_USERNAME: ${CONTROL_API_ANALYTICS_UMAMI_USERNAME:-}
+      CONTROL_API_ANALYTICS_UMAMI_PASSWORD: ${CONTROL_API_ANALYTICS_UMAMI_PASSWORD:-}
+      CONTROL_API_ANALYTICS_WEBSITE_ID: ${CONTROL_API_ANALYTICS_WEBSITE_ID:-}
+    volumes:
+      # The project root, so the config manager can read/back-up/atomic-write .env
+      # (its parent dir is needed for same-dir atomic rename + sibling backups).
+      - ./:/workspace
+      # SHADOW the host ./secrets dir with an empty anonymous volume: the API does
+      # NOT need (and must not see) the platform's secrets/ (age key, etc.).
+      - /workspace/secrets
+      # The dedicated SSH bridge key (read-only). Generate it during setup and add
+      # its public half to the host authorized_keys pinned to the bot-exec forced
+      # command. Empty until then -> the bridge simply reports it cannot reach the
+      # host (read-only endpoints that don't need the host still work).
+      - ./secrets/control-api:/app/secrets:ro
+    deploy:
+      resources:
+        limits:
+          # Small Next.js standalone server for a single low-traffic operator tool.
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The names MUST match the base file — do
+# NOT invent new networks.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

@@ -1,0 +1,40 @@
+# ===========================================================================
+# pi-system module: local-payments (dotnet-api) — payment env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: local-payments).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh. Adds NO new
+# container and NO host ports — it MERGES the PAYMENTS_* env into the project's
+# existing .NET service and activates the additive payment service via the
+# ASPNETCORE_HOSTINGSTARTUPASSEMBLIES flag (so it never replaces the base / bookings
+# Program.cs / app.csproj; shares the flag value with auth-sso / whatsapp when those
+# are composed). The service records intents in the project's own PostgreSQL via the
+# ConnectionStrings__Default the base already injects.
+#
+# Provider is chosen from PAYMENTS_PROVIDER: blank => "mock" (the safe default — the
+# whole lifecycle is simulated locally). Set PAYMENTS_PROVIDER=moyasar in .env, with
+# the merchant credentials, to take real payments (see this module's SETUP.md).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__:
+    environment:
+      ASPNETCORE_HOSTINGSTARTUPASSEMBLIES: "app"
+      # Provider selector. Blank => mock. Set PAYMENTS_PROVIDER=moyasar in .env.
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-mock}
+      PAYMENTS_API_KEY: ${PAYMENTS_API_KEY:-}
+      PAYMENTS_PUBLISHABLE_KEY: ${PAYMENTS_PUBLISHABLE_KEY:-}
+      PAYMENTS_WEBHOOK_SECRET: ${PAYMENTS_WEBHOOK_SECRET:-}
+      PAYMENTS_CURRENCY: ${PAYMENTS_CURRENCY:-SAR}
+      # Public base URL — used to build the provider callback + the webhook URL.
+      # Derived from the subdomain; override via .env if needed.
+      PAYMENTS_PUBLIC_URL: ${PAYMENTS_PUBLIC_URL:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}}
+
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

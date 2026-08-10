@@ -1,0 +1,23 @@
+// GET /api/monitoring/alerts — severity-tagged alerts derived from the health
+// monitor's own log + current alert file. READ-ONLY (bot-exec `monitor_alerts`
+// -> scripts/panel-read.sh). Any valid token; lightly throttled.
+import { authorize } from '../../../../lib/authorize.js';
+import { executeAction } from '../../../../lib/actions.js';
+import { consume } from '../../../../lib/ratelimit.js';
+import { tooMany, serverError } from '../../../../lib/http.js';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+export async function GET(request) {
+  const auth = await authorize(request, { requireOperator: false });
+  if (auth.response) return auth.response;
+  const config = auth.config;
+  const rl = consume(`read:${auth.identity}`, config.readRateLimit);
+  if (!rl.allowed) return tooMany('rate limit exceeded', rl.retryAfterSec);
+  try {
+    return await executeAction({ action: 'monitoring-alerts', identity: auth.identity, config, maxOutput: 512000 });
+  } catch {
+    return serverError();
+  }
+}

@@ -1,0 +1,7 @@
+# Fixture: a PLATFORM service dir (same file shape as a project) but WITHOUT the
+# `# pi-system-subdomain:` marker — so bot_list_projects must NOT list it. This
+# proves the bridge won't treat a platform service as a controllable project.
+name: pi-system
+services:
+  caddy:
+    image: caddy:2.8.4-alpine

@@ -1,0 +1,5 @@
+pi-system_keycloak	412MiB / 768MiB	53.65%	3.20%
+pi-system_postgres	95.2MiB / 256MiB	37.19%	0.50%
+pi-system_caddy	120MiB / 128MiB	93.75%	1.10%
+pi-system_homepage	60MiB / 256MiB	23.44%	0.10%
+pi-system_n8n	1.1GiB / 1.5GiB	73.33%	2.00%

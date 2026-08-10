@@ -1,0 +1,54 @@
+# ===========================================================================
+# pi-system — SEO auditor, OPTIONAL Lighthouse engine (heavy; opt-in only)
+# ---------------------------------------------------------------------------
+# The real, Chromium-based Lighthouse audit, for when you want a true
+# Lighthouse Performance score + measured Core Web Vitals (LCP/CLS/TBT) rather
+# than the default probe's heuristic scores. It is DELIBERATELY a separate image
+# from the lightweight default (services/seo/Dockerfile) because it is HEAVY:
+#
+#   ⚠ Honest Pi warning: this image bundles headless Chromium. A single run can
+#     use several hundred MB of RAM and noticeable CPU on a Pi 5. That is fine for
+#     an OCCASIONAL, scheduled, one-shot run (which is all this is) but is exactly
+#     why it is NOT the default and NOT always-on. Give it a higher memory limit
+#     and run it sparingly (e.g. weekly), one site at a time.
+#
+# It is still a ONE-SHOT container: it runs Lighthouse against one URL, emits JSON,
+# hands that JSON to the SAME audit engine (so storage/rules/report are identical),
+# and exits. Use it via:  ./scripts/seo.sh audit <site> --engine lighthouse
+#
+# HARD RULES: ARM64 only (node:22-alpine + Alpine's chromium are arm64); pinned
+# versions, never "latest"; non-root; no secrets baked in.
+# ===========================================================================
+FROM node:22-alpine
+
+# Alpine's Chromium (arm64) + the libs/fonts headless Chrome needs. Pin Lighthouse.
+ARG LIGHTHOUSE_VERSION=12.2.1
+# hadolint ignore=DL3018  (Alpine 'chromium' tracks the distro's security updates;
+# pinning to a single chromium build across arches is impractical — the node base
+# tag is pinned, which fixes the Alpine release line.)
+RUN apk add --no-cache \
+      chromium \
+      nss \
+      freetype \
+      harfbuzz \
+      ca-certificates \
+      ttf-freefont \
+  && npm install -g "lighthouse@${LIGHTHOUSE_VERSION}" \
+  && npm cache clean --force
+
+# Point Lighthouse/Chrome-launcher at the system Chromium (no download needed).
+ENV CHROME_PATH=/usr/bin/chromium-browser \
+    LIGHTHOUSE_CHROMIUM_PATH=/usr/bin/chromium-browser
+
+WORKDIR /opt/seo
+COPY engine/ /opt/seo/engine/
+COPY lh-audit.sh /opt/seo/lh-audit.sh
+RUN chmod 0755 /opt/seo/lh-audit.sh
+
+# Chromium needs a non-root user (it refuses to run headless as root without
+# --no-sandbox; we run as a normal user instead, which is the safer posture).
+USER node
+
+# The wrapper runs Lighthouse, then the engine ingests the JSON. scripts/seo.sh
+# passes the site name + URL as positional args.
+ENTRYPOINT ["/opt/seo/lh-audit.sh"]

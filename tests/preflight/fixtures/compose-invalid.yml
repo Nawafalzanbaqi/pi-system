@@ -1,0 +1,14 @@
+# pi-system preflight TEST FIXTURE — INVALID YAML / compose.
+# `docker compose config` must reject this. It is only exercised by the
+# OPTIONAL docker-gated test (skipped automatically when Docker is absent),
+# since detecting a parse error genuinely needs the Compose engine.
+name: preflight-fixture-invalid
+
+services:
+  broken:
+    image: nginx:1.27.3-alpine
+    ports:
+     - "80:80"
+       - "this is not valid yaml: [unclosed
+    environment:
+      - = nonsense

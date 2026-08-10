@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "prospects": {
+    "alpha-co": {
+      "schema": 1,
+      "id": "alpha-co",
+      "name": "Alpha Co",
+      "url": "https://alpha.example",
+      "status": "contacted",
+      "notes": [{ "ts": "2026-05-10T09:00:00.000Z", "text": "Spoke to the owner; interested." }],
+      "followup": "2026-05-20",
+      "lastAnalysis": null,
+      "createdAt": "2026-05-10T09:00:00.000Z",
+      "updatedAt": "2026-05-12T09:00:00.000Z",
+      "statusHistory": [
+        { "ts": "2026-05-10T09:00:00.000Z", "from": null, "to": "new" },
+        { "ts": "2026-05-12T09:00:00.000Z", "from": "new", "to": "contacted" }
+      ]
+    },
+    "beta-llc": {
+      "schema": 1,
+      "id": "beta-llc",
+      "name": "Beta LLC",
+      "url": "https://beta.example",
+      "status": "new",
+      "notes": [],
+      "followup": "2026-06-15",
+      "lastAnalysis": null,
+      "createdAt": "2026-05-15T09:00:00.000Z",
+      "updatedAt": "2026-05-15T09:00:00.000Z",
+      "statusHistory": [{ "ts": "2026-05-15T09:00:00.000Z", "from": null, "to": "new" }]
+    },
+    "gamma-inc": {
+      "schema": 1,
+      "id": "gamma-inc",
+      "name": "Gamma Inc",
+      "url": "https://gamma.example",
+      "status": "won",
+      "notes": [],
+      "followup": "2026-05-01",
+      "lastAnalysis": null,
+      "createdAt": "2026-04-01T09:00:00.000Z",
+      "updatedAt": "2026-05-02T09:00:00.000Z",
+      "statusHistory": [{ "ts": "2026-04-01T09:00:00.000Z", "from": null, "to": "new" }]
+    },
+    "delta-co": {
+      "schema": 1,
+      "id": "delta-co",
+      "name": "Delta Co",
+      "url": null,
+      "status": "in-talks",
+      "notes": [],
+      "followup": null,
+      "lastAnalysis": null,
+      "createdAt": "2026-05-18T09:00:00.000Z",
+      "updatedAt": "2026-05-18T09:00:00.000Z",
+      "statusHistory": [{ "ts": "2026-05-18T09:00:00.000Z", "from": null, "to": "new" }]
+    },
+    "echo-co": {
+      "schema": 1,
+      "id": "echo-co",
+      "name": "Echo Co",
+      "url": "https://echo.example",
+      "status": "lost",
+      "notes": [],
+      "followup": "2026-05-10",
+      "lastAnalysis": null,
+      "createdAt": "2026-05-05T09:00:00.000Z",
+      "updatedAt": "2026-05-09T09:00:00.000Z",
+      "statusHistory": [{ "ts": "2026-05-05T09:00:00.000Z", "from": null, "to": "new" }]
+    }
+  }
+}

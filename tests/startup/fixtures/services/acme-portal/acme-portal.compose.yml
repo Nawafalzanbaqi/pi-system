@@ -1,0 +1,9 @@
+# Fixture: a GENERATED project (carries the new-project.sh marker comment).
+# su_discover_projects must pick this up.
+# pi-system-subdomain: acme
+# pi-system-db: postgres
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+services:
+  acme-portal:
+    image: example/acme:0.0.0
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_acme-portal

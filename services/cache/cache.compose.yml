@@ -1,0 +1,140 @@
+# ===========================================================================
+# pi-system — local PACKAGE CACHE (npm + NuGet)  [OPTIONAL, profile-gated]
+# ---------------------------------------------------------------------------
+# Two small, on-demand registries that transparently MIRROR + CACHE the public
+# package registries, so repeated installs on the Pi are faster and resilient:
+#
+#   verdaccio    -> a local npm registry/cache that proxies the public npm
+#                   registry (registry.npmjs.org). On `internal` (so generated
+#                   projects reach it as http://verdaccio:4873/) AND `proxy` (so
+#                   its web UI is fronted by Caddy at cache.${BASE_DOMAIN}).
+#   nuget-cache  -> BaGetter, a lightweight NuGet server in read-through MIRROR
+#                   mode against nuget.org. INTERNAL-ONLY (no UI exposed); reach
+#                   it as http://nuget-cache:8080/v3/index.json.
+#
+# Both sit behind the Compose PROFILE "cache", so they NEVER auto-start and
+# consume ZERO RAM until you explicitly bring them up:
+#
+#   docker compose --env-file .env --project-directory . \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/cache/cache.compose.yml \
+#     --profile cache up -d
+#
+# Or simply use the helper:   ./scripts/cache.sh up
+#
+# A generated project OPTS IN to the cache (it is never forced) — see
+# services/cache/README.md and docs/README.md "Package cache". When the cache is
+# down, projects fall back to the public registries.
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5. Both tags below are
+#     verified multi-arch incl. linux/arm64 (the Pi 5's Cortex-A76).
+#   * Images pinned to explicit tags. NEVER "latest".
+#   * No secrets in this file — any credentials come from the root .env only
+#     (empty templates in the PACKAGE CACHE section of .env.example).
+#   * No host ports — the only thing ever exposed is Verdaccio's UI, and ONLY
+#     through Caddy on the `proxy` network. NuGet stays purely internal.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # verdaccio — local npm registry + read-through cache of npmjs.
+  #
+  # The committed, secret-free config at services/cache/verdaccio/config.yaml
+  # (bind-mounted read-only) sets the npmjs uplink, anonymous read access (so
+  # `npm install` just works) and authenticated publish (so you can optionally
+  # host your own internal packages). Cached tarballs + the optional htpasswd
+  # live in the named volume, so the read-only config mount is fine.
+  # -------------------------------------------------------------------------
+  verdaccio:
+    image: verdaccio/verdaccio:6.7.1          # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_verdaccio
+    profiles: ["cache"]                         # never auto-starts
+    restart: unless-stopped
+    networks:
+      - internal           # generated projects reach it as verdaccio:4873
+      - proxy              # its web UI is fronted by Caddy at cache.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # OPTIONAL: absolute public URL when behind the proxy. Blank is fine —
+      # Verdaccio also derives it from Caddy's forwarded Host/Proto headers.
+      VERDACCIO_PUBLIC_URL: ${VERDACCIO_PUBLIC_URL:-}
+    volumes:
+      # Committed, reviewable, SECRET-FREE config (read-only). See the file.
+      - ./services/cache/verdaccio/config.yaml:/verdaccio/conf/config.yaml:ro
+      # Cached package tarballs + (optional) htpasswd persist here. A fresh named
+      # volume inherits the image's /verdaccio/storage ownership (uid 10001), so
+      # there is no host-side chown to do.
+      - verdaccio_storage:/verdaccio/storage
+    deploy:
+      resources:
+        limits:
+          # Verdaccio is a light Node service; 256M is a comfortable cap.
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # nuget-cache — BaGetter in read-through MIRROR mode against nuget.org.
+  #
+  # A project points its NuGet.config at http://nuget-cache:8080/v3/index.json;
+  # the first restore of a package pulls it from nuget.org and stores it here,
+  # later restores are served locally. INTERNAL-ONLY: no UI is exposed and it
+  # never joins the `proxy` network. Its SQLite index + package files persist in
+  # the named volume.
+  # -------------------------------------------------------------------------
+  nuget-cache:
+    image: bagetter/bagetter:1.6.5            # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_nuget_cache
+    profiles: ["cache"]                         # never auto-starts
+    restart: unless-stopped
+    networks:
+      - internal           # generated projects reach it as nuget-cache:8080
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # Read-through mirror of the public NuGet feed — this is what makes it a
+      # transparent cache (not just a private feed).
+      Mirror__Enabled: "true"
+      Mirror__PackageSource: "https://api.nuget.org/v3/index.json"
+      # SQLite index + filesystem package storage, both under /data (the volume).
+      Database__Type: "Sqlite"
+      Database__ConnectionString: "Data Source=/data/bagetter.db"
+      Storage__Type: "FileSystem"
+      Storage__Path: "/data"
+      # OPTIONAL API key required to PUBLISH your own packages (push). Restores
+      # (the cache use-case) never need it. Empty by default — set it in .env
+      # only if you intend to push internal packages. Never commit a real value.
+      ApiKey: ${NUGET_CACHE_API_KEY:-}
+    volumes:
+      - nuget_cache_data:/data
+    deploy:
+      resources:
+        limits:
+          # BaGetter is a small ASP.NET Core app; 384M covers JIT + first-run.
+          memory: 384M
+
+# ---------------------------------------------------------------------------
+# Named volumes — cached packages survive `cache.sh down` (only the containers
+# are removed). Delete them by hand if you ever want to purge the cache.
+# ---------------------------------------------------------------------------
+volumes:
+  verdaccio_storage:
+  nuget_cache_data:
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The names MUST match the base file —
+# do NOT invent new networks. verdaccio sits on BOTH `internal` (so projects
+# reach it) and `proxy` (so Caddy fronts its UI); nuget-cache is `internal` only.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

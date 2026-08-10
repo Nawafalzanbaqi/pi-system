@@ -1,0 +1,17 @@
+# pi-system preflight TEST FIXTURE — deliberately BROKEN compose snippet.
+# Two services publish the SAME host port AND share a container_name, so the
+# pure collision detectors must flag both. NOT a real service; never started.
+name: preflight-fixture-bad
+
+services:
+  alpha:
+    image: redis:7.4.1-alpine
+    container_name: dup_name
+    ports:
+      - "9000:9000"
+
+  beta:
+    image: redis:7.4.1-alpine
+    container_name: dup_name        # <- collides with alpha
+    ports:
+      - "9000:9000"                 # <- collides with alpha (9000/tcp)

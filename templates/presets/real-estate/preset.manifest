@@ -1,0 +1,44 @@
+# ===========================================================================
+# pi-system sector preset — DECLARATION ONLY (no app code). See ../README.md.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: real-estate
+
+# One line describing the sector this preset targets.
+description: Real-estate listings — properties, search, viewing requests.
+
+# available — every module this preset composes is implemented (the credentialed
+# ones run on a mock provider by default; see each module's SETUP.md to go live).
+status: available
+
+# Base shape this preset uses: dotnet-api | nextjs-app | fullstack.
+base: fullstack
+
+# Default database engine (overridable with --db).
+database: postgres
+
+# Default locale ar|en (overridable with --locale). ar => RTL by default.
+default_locale: ar
+
+# Modules this preset composes, in order. ALL SIX are implemented (composed in now).
+# whatsapp-integration ships a working MOCK provider by default, so it composes and
+# runs immediately; switching it to the live WhatsApp Cloud API needs external
+# credentials (a one-time step in whatsapp-integration/SETUP.md) — the project is
+# fully functional on the mock until then.
+# auth-sso is included because real-estate is an ADMIN context — agents log in to
+# manage listings and viewing requests — so SSO belongs here (it stays OPTIONAL
+# platform-wide; a public marketing site such as company-site deliberately omits it).
+# seo-toolkit is included because property listings need to be discoverable — it adds
+# the on-page SEO defaults (meta + Open Graph, a bilingual sitemap.xml & robots.txt,
+# JSON-LD) the SEO auditor (services/seo) then checks. It needs no credentials and
+# cooperates with i18n (and its robots.txt keeps the auth-sso /account area out of
+# the index).
+#   bookings              implemented (composed in — viewing requests / appointments)
+#   content-admin         implemented (composed in — Directus headless CMS)
+#   i18n-bilingual        implemented (composed in — Arabic/English + RTL)
+#   auth-sso              implemented (composed in — Keycloak SSO / OIDC for agents)
+#   whatsapp-integration  implemented (composed in — mock by default; live needs Meta creds)
+#   seo-toolkit           implemented (composed in — on-page SEO defaults; bilingual; no creds)
+modules: bookings, content-admin, i18n-bilingual, auth-sso, whatsapp-integration, seo-toolkit

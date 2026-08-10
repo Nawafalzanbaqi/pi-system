@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# pi-system — UNIFIED OPERATOR CONTROL  (the one command to run the platform)
+# ---------------------------------------------------------------------------
+# A single, friendly ENTRYPOINT that wraps the platform's pre-launch toolchain
+# behind a handful of subcommands, so the day-to-day operator runs ONE thing
+# instead of remembering the order of five separate scripts. It is a THIN
+# DISPATCHER: it routes arguments, sequences the existing tools and prints an
+# aggregated report — the real work stays in those tools (and their tested
+# libraries), which it ORCHESTRATES rather than re-implements.
+#
+#   pi check    [scope]      Read-only gates only: preflight + mem-budget.
+#                            Brings NOTHING up — answer "is the Pi ready?".
+#   pi up       [scope]      Guided go-live: run the canonical sequence end to
+#                            end — preflight -> mem-budget -> staged, verified
+#                            startup — HALTING on the first failure.
+#   pi status   [-q]         Whole-system snapshot: what's up / off / broken,
+#                            host health and generated projects, at a glance.
+#   pi health   [opts]       Run the host hardware health probe once.
+#   pi down     [scope]      Reverse-order, DATA-SAFE shutdown.
+#   pi help     [command]    This help (or details for one subcommand).
+#
+# SCOPE selectors (shared by up / check / down), default profile: core
+#   --profile NAME     Boot profile (core, dev, auth, automation, ...). Profiles
+#                      nest on core; see infrastructure/boot-profiles.conf.
+#   --services LIST    Extra services/profiles (comma/space), unioned with the
+#                      profile, e.g. --services "postgres redis".
+#
+# Anything else is PASSED THROUGH to the underlying tool unchanged, e.g.
+#   pi up --profile dev --dry-run          # just print the staged plan
+#   pi up --skip-checks -y                  # skip the read-only gates (you own it)
+#   pi up --profile auth --ram 16384        # plan/budget for a 16 GB Pi
+#   pi down --profile auth                   # stop only the auth stage (data kept)
+#   pi status -q                             # one-line verdict for scripts/cron
+#
+# `up` runs the SAME read-only preflight + memory-budget checks first and refuses
+# to proceed if either FAILs (override with --skip-checks / --skip-preflight /
+# --skip-mem-budget). Because the dispatcher has already run them, it invokes
+# startup with --skip-checks so they are never run twice.
+#
+# Exit code: 0 on success; 1 if a step failed / the system is degraded; 2 on a
+# usage error. Run from anywhere — paths resolve relative to the project root.
+# ===========================================================================
+set -euo pipefail
+
+# --- Resolve project root (the parent of this scripts/ directory) ----------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
+
+# --- Load the control library (routing, sequencing, scope, seams) ----------
+export CTL_PROJECT_ROOT="${PROJECT_ROOT}"
+LIB="${SCRIPT_DIR}/lib/ctl-lib.sh"
+if [[ ! -f "${LIB}" ]]; then
+  printf '\033[0;31m[error]\033[0m Missing required library: %s\n' "${LIB}" >&2
+  exit 1
+fi
+# shellcheck source=scripts/lib/ctl-lib.sh
+source "${LIB}"
+
+# --- Colours (off when not a TTY, or NO_COLOR set) -------------------------
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  C_GREEN=$'\033[0;32m'; C_YELLOW=$'\033[0;33m'; C_RED=$'\033[0;31m'
+  C_CYAN=$'\033[1;36m';  C_BOLD=$'\033[1m';      C_OFF=$'\033[0m'
+else
+  C_GREEN=''; C_YELLOW=''; C_RED=''; C_CYAN=''; C_BOLD=''; C_OFF=''
+fi
+log()  { printf '%s[pi]%s %s\n' "${C_GREEN}" "${C_OFF}" "$*"; }
+err()  { printf '%s[error]%s %s\n' "${C_RED}" "${C_OFF}" "$*" >&2; }
+
+# ===========================================================================
+# Help
+# ===========================================================================
+usage() {
+  cat <<EOF
+${C_BOLD}pi-system — unified operator control${C_OFF}
+
+${C_CYAN}Usage:${C_OFF} scripts/pi <command> [options]
+
+${C_CYAN}Commands:${C_OFF}
+  ${C_BOLD}check${C_OFF}   [scope]    Read-only readiness: preflight + memory budget. Starts nothing.
+  ${C_BOLD}up${C_OFF}      [scope]    Guided go-live: preflight -> mem-budget -> staged verified
+                       bring-up, halting on the first failure. Default profile: core.
+  ${C_BOLD}status${C_OFF}  [-q]       Whole-system snapshot: up / off / broken, host health,
+                       generated projects, and an overall verdict.
+  ${C_BOLD}health${C_OFF}  [opts]     Run the Pi hardware health probe once (temp/disk/memory).
+  ${C_BOLD}down${C_OFF}    [scope]    Reverse-order, DATA-SAFE shutdown (named volumes are kept).
+  ${C_BOLD}doctor${C_OFF}             First-run guide: read-only — print the single next command to run.
+  ${C_BOLD}help${C_OFF}    [command]  Show this help, or details for one command.
+
+${C_CYAN}Scope selectors${C_OFF} (up / check / down) — default profile is ${C_BOLD}core${C_OFF}:
+  --profile NAME      Boot profile: core, dev, auth, automation, ... (they nest on core).
+  --services LIST     Extra services/profiles (comma/space), unioned with --profile.
+
+${C_CYAN}Common pass-through options${C_OFF} (forwarded unchanged to the underlying tool):
+  --dry-run                 up: print the staged plan and stop (starts nothing).
+  --skip-checks             up: skip BOTH read-only gates (preflight + mem-budget).
+  --skip-preflight          up: skip only preflight.
+  --skip-mem-budget         up: skip only the memory budget.
+  --stages LIST             up/down: act on these stages explicitly (e.g. databases,auth).
+  --with-projects           up: also deploy generated projects under services/.
+  --ram MiB / --os-reserve MiB   plan the budget for a different Pi.
+  -y, --yes                 non-interactive (no confirmation prompt).
+  -q, --quiet               less chatter / one-line status.
+
+${C_CYAN}Examples:${C_OFF}
+  scripts/pi doctor                      # first run? print the next command to run
+  scripts/pi check                       # is the host ready? (read-only)
+  scripts/pi up --profile core           # bring up the always-on core, verified
+  scripts/pi up --profile dev --dry-run  # show what dev would start
+  scripts/pi status                      # what is up / off / broken right now
+  scripts/pi health                      # is the running Pi still healthy?
+  scripts/pi down --profile auth         # stop just the auth stage (data kept)
+
+It ORCHESTRATES (never duplicates) the underlying tools:
+  scripts/preflight.sh  scripts/mem-budget.sh  scripts/startup.sh
+  scripts/shutdown.sh   scripts/health-monitor.sh   scripts/status.sh
+EOF
+}
+
+help_for() {
+  case "${1:-}" in
+    up)     bash "${SCRIPT_DIR}/startup.sh" --help 2>&1 | sed -n '1,60p' ;;
+    down)   bash "${SCRIPT_DIR}/shutdown.sh" --help 2>&1 | sed -n '1,40p' ;;
+    check)  bash "${SCRIPT_DIR}/preflight.sh" --help 2>&1; echo; bash "${SCRIPT_DIR}/mem-budget.sh" --help 2>&1 ;;
+    status) bash "${SCRIPT_DIR}/status.sh" --help 2>&1 ;;
+    health) bash "${SCRIPT_DIR}/health-monitor.sh" --help 2>&1 ;;
+    doctor) cat <<EOF
+${C_BOLD}pi doctor${C_OFF} — first-run guide (read-only)
+
+Reads three signals through the existing tools — does .env exist, do secrets pass
+(check-secrets.sh), and what is the live system verdict (status.sh) — and prints
+the single next command to run, mapped to a step in docs/RUNBOOK.md. It starts
+nothing and never prints a secret. The RUNBOOK is the full, ordered source of truth.
+
+Usage: scripts/pi doctor      (alias: scripts/pi runbook)
+EOF
+            ;;
+    *)      usage ;;
+  esac
+}
+
+# ===========================================================================
+# Aggregated report rendering (shared by `up` and `check`)
+# ===========================================================================
+# Print one PASS/FAIL/SKIPPED line per PLANNED step from CTL_RESULTS.
+render_summary() {
+  local title="$1"; shift
+  local -a planned=("$@")
+  declare -A st=()
+  local r s v
+  for r in "${CTL_RESULTS[@]:-}"; do
+    [[ -n "${r}" ]] || continue
+    s="${r%%$'\t'*}"; v="${r#*$'\t'}"; st["${s}"]="${v}"
+  done
+  printf '\n%s== %s summary ==%s\n' "${C_CYAN}" "${title}" "${C_OFF}"
+  local step
+  for step in "${planned[@]}"; do
+    case "${st[${step}]:-SKIPPED}" in
+      PASS) printf '  %s✓ %-11s PASS%s    — %s\n'    "${C_GREEN}"  "${step}" "${C_OFF}" "$(ctl_step_desc "${step}")" ;;
+      FAIL) printf '  %s✗ %-11s FAIL%s    — %s\n'    "${C_RED}"    "${step}" "${C_OFF}" "$(ctl_step_desc "${step}")" ;;
+      *)    printf '  %s· %-11s SKIPPED%s (a prior step failed)\n' "${C_YELLOW}" "${step}" "${C_OFF}" ;;
+    esac
+  done
+}
+
+# Which planned step FAILed (the halt point), or empty if none.
+halt_step() {
+  local r s v
+  for r in "${CTL_RESULTS[@]:-}"; do
+    [[ -n "${r}" ]] || continue
+    s="${r%%$'\t'*}"; v="${r#*$'\t'}"
+    [[ "${v}" == "FAIL" ]] && { printf '%s' "${s}"; return 0; }
+  done
+}
+
+# ===========================================================================
+# Build the per-tool argv from the operator's `up`/`check` args (shared).
+#   Sets: CTL_PF_ARGS, CTL_MB_ARGS  (and, for up, CTL_SU_ARGS).
+#   Echoes nothing; reads the global TOK/quiet decisions it computes.
+# ===========================================================================
+build_check_args() {
+  local -a argv=("$@")
+  local quiet=0
+  { ctl_has_flag -q "${argv[@]}" || ctl_has_flag --quiet "${argv[@]}"; } && quiet=1
+
+  local -a tok=(); mapfile -t tok < <(ctl_scope_tokens "${argv[@]}")
+  (( ${#tok[@]} )) || tok=(core)
+
+  # preflight is scoped to the components the selected services map to.
+  local -a comps=(); mapfile -t comps < <(ctl_preflight_components "${CTL_PROFILE_CONF}" "${tok[@]}")
+  CTL_PF_ARGS=()
+  (( ${#comps[@]} )) && CTL_PF_ARGS=(--services "${comps[*]}")
+  (( quiet )) && CTL_PF_ARGS+=(-q)
+
+  # mem-budget understands profiles + services directly — pass the tokens as-is.
+  CTL_MB_ARGS=("${tok[@]}")
+  local ram osr
+  ram="$(ctl_value_flag --ram "${argv[@]}" || true)";        [[ -n "${ram}" ]] && CTL_MB_ARGS+=(--ram "${ram}")
+  osr="$(ctl_value_flag --os-reserve "${argv[@]}" || true)"; [[ -n "${osr}" ]] && CTL_MB_ARGS+=(--os-reserve "${osr}")
+  (( quiet )) && CTL_MB_ARGS+=(-q)
+
+  log "scope: ${tok[*]}${comps:+   (preflight components: ${comps[*]})}"
+}
+
+# ===========================================================================
+# Subcommand: check  — the read-only pair, no bring-up
+# ===========================================================================
+cmd_check() {
+  local -a argv=("$@")
+  local dry pf mb; read -r dry pf mb <<< "$(ctl_skip_flags "${argv[@]}")"
+  build_check_args "${argv[@]}"
+
+  local -a steps=(); mapfile -t steps < <(ctl_check_steps "${pf}" "${mb}")
+  if (( ${#steps[@]} == 0 )); then
+    log "Both read-only checks were skipped — nothing to do."
+    return 0
+  fi
+  printf '%spi-system check%s — read-only readiness (%s)\n' "${C_BOLD}" "${C_OFF}" "$(printf '%s -> ' "${steps[@]}" | sed 's/ -> $//')"
+  CTL_RESULTS=()
+  local rc=0
+  ctl_run_sequence ctl_step_run "${steps[@]}" || rc=1
+  render_summary "check" "${steps[@]}"
+  if (( rc == 0 )); then
+    printf '%sVERDICT: READY%s — the host passed every read-only gate. Bring it up with: scripts/pi up\n' "${C_GREEN}${C_BOLD}" "${C_OFF}"
+  else
+    printf '%sVERDICT: NOT READY%s — %s reported a problem (see its report above). Fix it, then re-run.\n' "${C_RED}${C_BOLD}" "${C_OFF}" "$(halt_step)" >&2
+  fi
+  return "${rc}"
+}
+
+# ===========================================================================
+# Subcommand: up  — the guided go-live sequence (HALT on first failure)
+# ===========================================================================
+cmd_up() {
+  local -a argv=("$@")
+  local dry pf mb; read -r dry pf mb <<< "$(ctl_skip_flags "${argv[@]}")"
+  build_check_args "${argv[@]}"
+
+  # startup gets every original arg PLUS --skip-checks (we already gated above).
+  CTL_SU_ARGS=(); mapfile -t CTL_SU_ARGS < <(ctl_forward_startup_args "${argv[@]}")
+
+  local -a steps=(); mapfile -t steps < <(ctl_up_steps "${dry}" "${pf}" "${mb}")
+  printf '%spi-system go-live%s — sequence: %s\n' "${C_BOLD}" "${C_OFF}" "$(printf '%s -> ' "${steps[@]}" | sed 's/ -> $//')"
+  (( pf )) && log "preflight will be SKIPPED (you asked to skip it)."
+  (( mb )) && log "memory-budget will be SKIPPED (you asked to skip it)."
+
+  CTL_RESULTS=()
+  local rc=0
+  ctl_run_sequence ctl_step_run "${steps[@]}" || rc=1
+  render_summary "go-live" "${steps[@]}"
+
+  if (( dry )); then
+    printf '%sVERDICT: DRY-RUN%s — the staged plan was printed; nothing was started.\n' "${C_YELLOW}${C_BOLD}" "${C_OFF}"
+    return "${rc}"
+  fi
+  if (( rc == 0 )); then
+    printf '%sVERDICT: LIVE%s — every step passed; the selected stack is up. Check it with: scripts/pi status\n' "${C_GREEN}${C_BOLD}" "${C_OFF}"
+  else
+    local hs; hs="$(halt_step)"
+    printf '%sVERDICT: HALTED%s — "%s" failed; nothing after it ran. Fix it (see its report above), then re-run scripts/pi up.\n' \
+      "${C_RED}${C_BOLD}" "${C_OFF}" "${hs}" >&2
+  fi
+  return "${rc}"
+}
+
+# ===========================================================================
+# Subcommand: down / status / health — thin pass-through to the right tool
+# ===========================================================================
+cmd_down()   { ctl_run_shutdown "$@"; }
+cmd_status() { ctl_run_status   "$@"; }
+cmd_health() { ctl_run_health   "$@"; }
+
+# ===========================================================================
+# Subcommand: doctor — "where am I, and what do I run next?"  (READ-ONLY)
+# ===========================================================================
+# A thin bridge into docs/RUNBOOK.md: it reads three signals through the existing
+# tools (does .env exist? do secrets pass? what is the live system verdict?) and
+# prints the single next recommended command via the tested ctl_next_command. It
+# starts nothing and never prints a secret — the RUNBOOK stays the source of truth.
+cmd_doctor() {
+  local env_exists=0 secrets_ok=0 verdict out rec next reason
+  [[ -f "${PROJECT_ROOT}/.env" ]] && env_exists=1
+  if (( env_exists )); then
+    ctl_run_check_secrets >/dev/null 2>&1 && secrets_ok=1 || true
+  fi
+  out="$(ctl_run_status -q 2>&1 || true)"
+  verdict="$(ctl_status_verdict_word "${out}")"
+
+  rec="$(ctl_next_command "${env_exists}" "${secrets_ok}" "${verdict}")"
+  next="${rec%%$'\t'*}"; reason="${rec#*$'\t'}"
+
+  printf '%spi-system doctor%s — where you are, and what to run next\n' "${C_BOLD}" "${C_OFF}"
+  printf '  .env present : %s\n' "$( ((env_exists)) && echo yes || echo "no" )"
+  printf '  secrets      : %s\n' "$( ((secrets_ok)) && echo "pass (check-secrets)" || echo "incomplete / not yet passing" )"
+  printf '  system       : %s\n' "${verdict}"
+  printf '\n%s➜ NEXT:%s %s%s%s\n' "${C_CYAN}${C_BOLD}" "${C_OFF}" "${C_BOLD}" "${next}" "${C_OFF}"
+  printf '        %s\n' "${reason}"
+  printf '\nThe full, ordered first-run guide is %sdocs/RUNBOOK.md%s.\n' "${C_BOLD}" "${C_OFF}"
+}
+
+# ===========================================================================
+# Dispatch
+# ===========================================================================
+SUB="${1:-}"
+ROUTE="$(ctl_route "${SUB:-}")"
+case "${ROUTE}" in
+  help) ;;            # handled below (may take a topic)
+  unknown) ;;         # handled below
+  *) shift ;;         # consume the subcommand; the rest are its args
+esac
+
+case "${ROUTE}" in
+  up)      cmd_up "$@" ;;
+  check)   cmd_check "$@" ;;
+  down)    cmd_down "$@" ;;
+  status)  cmd_status "$@" ;;
+  health)  cmd_health "$@" ;;
+  doctor)  cmd_doctor "$@" ;;
+  help)    shift || true; help_for "${1:-}" ;;
+  unknown) err "Unknown command: '${SUB}'."; echo >&2; usage >&2; exit 2 ;;
+esac

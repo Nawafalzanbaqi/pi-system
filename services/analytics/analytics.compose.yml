@@ -1,0 +1,154 @@
+# ===========================================================================
+# pi-system — WEB ANALYTICS (Umami)  [OPTIONAL, profile-gated]
+# ---------------------------------------------------------------------------
+# A lightweight, self-hosted, PRIVACY-FIRST web-analytics engine so the operator
+# can see, for sites they OWN (their own portfolio + the client sites they host),
+# who visits, which pages they view, where they came from, and what they click —
+# WITHOUT Google Analytics or any third-party tracker that ships data off-platform.
+#
+# WHY UMAMI (over Plausible CE): it is the lighter of the two ARM64-friendly,
+# privacy-first options — a single Node.js app plus ONE relational database
+# (Plausible needs Elixir + ClickHouse + Postgres). It is PostgreSQL-based, which
+# fits this stack's existing Postgres usage and isolation conventions exactly, and
+# it is privacy-first by design: no cookies, no cross-site tracking, no personal
+# data collected (GDPR/PECR-friendly out of the box). It needs NO external account.
+#
+# Two services, brought up together as ONE unit behind the Compose PROFILE
+# "analytics", so they NEVER auto-start and consume ZERO RAM until you run them:
+#
+#   umami-db -> a DEDICATED PostgreSQL for Umami, ISOLATED from the shared engines
+#               in services/databases (and from every other service's private DB —
+#               keycloak-db, n8n-db, a project's content-admin DB). Internal-only,
+#               no host ports, its OWN named volume. (Same isolation idea as the
+#               auth layer's private keycloak-db.) Analytics data lives apart.
+#   umami    -> the Umami app. On `internal` (to reach its DB) AND `proxy` (so
+#               Caddy fronts its dashboard at analytics.${BASE_DOMAIN}). Publishes
+#               NO host ports — reached only via Caddy. The tracker script it serves
+#               at /script.js is what generated projects (the web-analytics module)
+#               load to report page views + events back here.
+#
+# Bring it up only when you want it, take it down when idle:
+#
+#   docker compose --env-file .env --project-directory . \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/analytics/analytics.compose.yml \
+#     --profile analytics up -d
+#
+# Or simply use the helper:   ./scripts/analytics.sh up
+#
+# FIRST BOOT: Umami auto-runs its database migrations and creates a default admin
+# user (username "admin", password "umami") when the DB is empty — CHANGE that
+# password immediately after the first login. First boot takes ~20-40s on a cold Pi.
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5. Both tags below are
+#     multi-arch incl. linux/arm64 (the Pi 5's Cortex-A76).
+#   * Every image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file — every credential comes from the root .env only
+#     (empty templates in the ANALYTICS section of .env.example).
+#   * Internal-only DB; the app exposes NO host ports and is reachable only through
+#     Caddy on the `proxy` network.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # umami-db — Umami's OWN, dedicated PostgreSQL.
+  # Deliberately separate from the shared engines in services/databases: analytics
+  # data has its own lifecycle and blast radius, so it gets its own container and
+  # its own umami_db_data volume. Internal-only, reached by Umami as
+  # "umami-db:5432". The user/database names are non-secret literals; only the
+  # password comes from .env.
+  # -------------------------------------------------------------------------
+  umami-db:
+    image: postgres:16.6-alpine                    # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_umami-db
+    profiles: ["analytics"]                         # never auto-starts
+    restart: unless-stopped
+    networks:
+      - internal           # internal-only; reached as "umami-db:5432"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: umami
+      POSTGRES_DB: umami
+      POSTGRES_PASSWORD: ${ANALYTICS_DB_PASSWORD}  # required — set in .env
+    volumes:
+      - umami_db_data:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes Compose interpolation so the literal $VAR reaches the shell
+      # INSIDE the container, where POSTGRES_USER / POSTGRES_DB are defined.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # umami — the privacy-first analytics app (Node.js).
+  # On BOTH networks: `internal` to reach its DB, `proxy` so Caddy fronts the
+  # dashboard at analytics.${BASE_DOMAIN}. No healthcheck is declared here
+  # (consistent with the platform's other app services — Keycloak, n8n, Directus);
+  # it waits for its DB to be healthy before starting. Umami listens on 3000.
+  # -------------------------------------------------------------------------
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-v2.20.2   # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_umami
+    profiles: ["analytics"]                         # never auto-starts
+    restart: unless-stopped
+    depends_on:
+      umami-db:
+        condition: service_healthy                  # wait for the DB to be ready
+    networks:
+      - internal           # reach the dedicated DB as "umami-db:5432"
+      - proxy              # fronted by Caddy at analytics.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # --- Connection to the dedicated umami-db above (assembled from .env) ----
+      # Built from the non-secret literals (user/db = "umami") + the password from
+      # .env; ${...} is interpolated by Compose at runtime — no secret in this file.
+      DATABASE_URL: postgresql://umami:${ANALYTICS_DB_PASSWORD}@umami-db:5432/umami
+      DATABASE_TYPE: postgresql
+      # --- App secret (REQUIRED) — signs auth tokens / hashes. Keep it STABLE. ---
+      APP_SECRET: ${ANALYTICS_APP_SECRET}
+      # --- Privacy / self-hosting posture --------------------------------------
+      # Umami's own anonymous usage telemetry OFF — nothing about this instance
+      # leaves the Pi. (Visitor analytics for YOUR sites are unaffected; this only
+      # disables Umami "phoning home".)
+      DISABLE_TELEMETRY: "1"
+    volumes: []
+    deploy:
+      resources:
+        limits:
+          # Umami is a light Next.js/Node service; 256M is a comfortable cap for the
+          # low-traffic personal/client sites this platform hosts.
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Named volume for Umami's dedicated database (project-name prefixed, e.g.
+# "pi-system_umami_db_data"). `./scripts/analytics.sh down` removes only the
+# containers — this volume, and thus all collected analytics, survives.
+# ---------------------------------------------------------------------------
+volumes:
+  umami_db_data:
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The names MUST match the base file — do
+# NOT invent new networks. umami-db sits on `internal` only; umami sits on BOTH
+# `internal` (to reach its DB) and `proxy` (so Caddy fronts its dashboard).
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

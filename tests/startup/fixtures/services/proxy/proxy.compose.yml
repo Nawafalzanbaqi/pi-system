@@ -1,0 +1,8 @@
+# Fixture: a PLATFORM service dir (same services/<name>/<name>.compose.yml shape
+# as a project, but NO pi-system-subdomain marker). su_discover_projects must
+# NOT treat this as a generated project (otherwise the projects stage would try
+# to re-deploy the platform itself).
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+services:
+  caddy:
+    image: caddy:2.8.4-alpine

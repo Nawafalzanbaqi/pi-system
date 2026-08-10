@@ -1,0 +1,6 @@
+{
+  "checked_at": "2026-05-23T12:00:00+0000",
+  "verdict": "WARN",
+  "sections": { "temp": "PASS", "throttle": "PASS", "disk_root": "WARN", "disk_docker": "PASS", "mem": "PASS", "swap": "PASS", "containers": "PASS" },
+  "measured": { "cpu_temp_c": "58.2", "root_pct": "83", "mem_used_pct": "61", "swap_used_pct": "3" }
+}

@@ -1,0 +1,54 @@
+# ===========================================================================
+# pi-system module: auth-sso (fullstack) — end-to-end OIDC for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: auth-sso).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh. Adds NO new
+# container and NO host ports — it MERGES OIDC environment into BOTH existing
+# services so the loop is wired end to end:
+#
+#   __PROJECT_NAME__-api  (internal-only .NET API) -> validates JWT bearer tokens
+#                          against the realm (issuer + audience + JWKS). Auth is
+#                          added additively by Auth/OidcHostingStartup.cs, turned on
+#                          by the ASPNETCORE_HOSTINGSTARTUPASSEMBLIES flag — so it
+#                          never has to replace bookings' Program.cs / app.csproj.
+#   __PROJECT_NAME__-web  (Next.js, web-facing) -> runs the OIDC Authorization Code
+#                          + PKCE login, keeps an encrypted session cookie, and
+#                          calls the API server-side with the user's access token.
+#
+# The web service already receives the client id/secret + APP_SECRET from the base
+# (this project's per-project .env slots); we add the realm issuer and the public
+# URLs. The api service does NOT get those from the base, so we pass the issuer,
+# audience and (for the audience fallback) the client id here.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # --- Backend: validate access tokens ------------------------------------
+  __PROJECT_NAME__-api:
+    environment:
+      ASPNETCORE_HOSTINGSTARTUPASSEMBLIES: "app"
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      # The base does NOT pass the client id to the API; supply it so the API can
+      # fall back to it as the expected audience when OIDC_AUDIENCE is blank.
+      OIDC_CLIENT_ID: ${__ENVPREFIX__OIDC_CLIENT_ID:-}
+      OIDC_REQUIRE_HTTPS_METADATA: ${OIDC_REQUIRE_HTTPS_METADATA:-true}
+
+  # --- Frontend: drive the login + hold the session -----------------------
+  __PROJECT_NAME__-web:
+    environment:
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_APP_BASE_URL: ${OIDC_APP_BASE_URL:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}/api/auth/callback}
+      OIDC_POST_LOGOUT_REDIRECT_URI: ${OIDC_POST_LOGOUT_REDIRECT_URI:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}/}
+      OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email}
+      OIDC_REQUIRE_HTTPS_METADATA: ${OIDC_REQUIRE_HTTPS_METADATA:-true}
+
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

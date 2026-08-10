@@ -1,0 +1,71 @@
+/* ===========================================================================
+ * control-panel — global, document-level styles ONLY.
+ * ---------------------------------------------------------------------------
+ * The design system's single source of truth is components/theme.js (the TOKENS
+ * object + inline style objects, exactly as the prototype was authored). This
+ * file holds ONLY what must live at the document level and cannot be expressed
+ * as a per-component inline style: the reset, the body background, font-family
+ * defaults wired to the next/font CSS variables, the keyframes the prototype
+ * injected at runtime (shimmer / dialog-in / spin), reduced-motion, and a calm
+ * scrollbar. RTL is structural (logical CSS properties in the components); dir
+ * is set on <html> by the shell.
+ * =========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  /* Light is the primary theme; the shell flips data-theme="dark" on <html>. */
+  background: #fafaf9;
+  color: #18181b;
+  font-family: var(--font-en, 'Inter', system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+html[data-theme='dark'] body { background: #0b0b0c; color: #f4f4f5; }
+
+/* Arabic primary: when the document is RTL, default to the Arabic face. */
+html[dir='rtl'] body { font-family: var(--font-ar, 'IBM Plex Sans Arabic', system-ui, sans-serif); }
+
+#__pi_root { height: 100%; }
+
+/* ---- Keyframes (the prototype injected these at runtime; declared once here) */
+@keyframes skelShimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@keyframes dlgIn { from { transform: translateY(8px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes wmIn  { from { transform: translateY(8px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes rsIn  { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+@keyframes srIn  { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes gFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes gSlideIn { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.skel {
+  position: relative;
+  overflow: hidden;
+  background: var(--skel-bg, rgba(0, 0, 0, 0.06));
+  border-radius: 6px;
+}
+.skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--skel-shimmer, rgba(255, 255, 255, 0.5)), transparent);
+  animation: skelShimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel::after { animation: none; opacity: 0.5; }
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* ---- Calm scrollbars (Linear-ish) -------------------------------------- */
+* { scrollbar-width: thin; scrollbar-color: rgba(120,120,128,0.4) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: rgba(120,120,128,0.35); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-track { background: transparent; }

@@ -1,0 +1,52 @@
+# ===========================================================================
+# pi-system — base infrastructure
+# ---------------------------------------------------------------------------
+# This file defines ONLY the shared Docker networks for the platform.
+# There are NO services yet — they will be added in later phases, each in its
+# own compose file under /services, and attached to the networks below.
+#
+# Usage (run from the project root so the root .env is picked up):
+#     docker compose --env-file .env -f infrastructure/docker-compose.yml config
+#     docker compose --env-file .env -f infrastructure/docker-compose.yml up -d
+#
+# NOTE: Docker only materialises a network once a service references it, so an
+#       `up` with no services is a no-op today. Use `config` to validate this
+#       file. The networks come to life as soon as the first service joins.
+#
+# HARD RULES for every service added later:
+#   * The image MUST be ARM64 (linux/arm64) compatible — this runs on a Pi 5.
+#   * Pin every image to an explicit version tag. NEVER use "latest".
+#   * No secrets/passwords in compose files — reference environment variables.
+# ===========================================================================
+
+# Top-level project name (Compose v2). Keeps resource names predictable.
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+networks:
+  # -------------------------------------------------------------------------
+  # internal — east/west traffic between trusted services
+  # (apps <-> databases, caches, queues, etc.).
+  # Not intended to be reachable from outside the host. Uncomment
+  # `internal: true` to additionally cut off ALL outbound internet access for
+  # everything attached to this network (good for databases that never need it).
+  # -------------------------------------------------------------------------
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+    # internal: true
+    ipam:
+      driver: default
+      config:
+        - subnet: ${INTERNAL_SUBNET:-172.20.0.0/16}
+
+  # -------------------------------------------------------------------------
+  # proxy — the public-facing edge. The reverse proxy and any service that
+  # must be reachable from outside the Pi attach here (added in a later phase).
+  # -------------------------------------------------------------------------
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: ${PROXY_SUBNET:-172.21.0.0/16}

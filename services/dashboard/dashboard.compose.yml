@@ -1,0 +1,113 @@
+# ===========================================================================
+# pi-system — unified dashboard (Homepage)
+# ---------------------------------------------------------------------------
+# A single landing page that fronts every platform service with cards/links and
+# at-a-glance health, so you have ONE place to reach Portainer, Uptime Kuma,
+# Keycloak, n8n, the database admin UIs and any generated project subdomains.
+#
+# It is gethomepage/homepage — a lightweight, file-configured dashboard. Its
+# whole configuration lives in committed YAML under services/dashboard/config/
+# (bind-mounted below); there are NO secrets in those files. Service URLs are
+# built from ${BASE_DOMAIN} at runtime via Homepage's {{HOMEPAGE_VAR_*}}
+# substitution, so the same committed config works locally (home.localhost) and
+# in production (home.example.com) with no edits.
+#
+# One service, brought up on its own:
+#
+#   homepage  -> the dashboard (Node.js / Next.js). On BOTH networks:
+#                `proxy`    so Caddy fronts it at home.${BASE_DOMAIN}, AND
+#                `internal` so its safe HTTP health checks (siteMonitor) can
+#                           reach the other services BY SERVICE NAME
+#                           (portainer:9000, uptime-kuma:3001, keycloak:8080,
+#                           n8n:5678, pgadmin:80, ...). Publishes NO host ports
+#                           — reachable only through Caddy.
+#
+# ALWAYS run together with the base compose file so the shared `internal` /
+# `proxy` networks (and their subnet/IPAM) are inherited, and so the relative
+# config bind-mount below resolves from the project root:
+#
+#   docker compose --env-file .env --project-directory . \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/dashboard/dashboard.compose.yml \
+#     up -d
+#
+# Or simply use the helper:   ./scripts/dashboard.sh up
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5. The tag below is
+#     verified multi-arch incl. linux/arm64 (the Pi 5's Cortex-A76).
+#   * Image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file or in services/dashboard/config — any future
+#     widget API keys come from the root .env only (HOMEPAGE_VAR_* templates).
+#   * No host ports — the dashboard is reachable ONLY through Caddy.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # homepage — the unified dashboard.
+  #
+  # CONFIG: persisted to a MOUNTED CONFIG DIRECTORY (services/dashboard/config),
+  # NOT a named volume. This is deliberate: the starter configuration is part of
+  # the repo, so the cards/links/health are version-controlled, reviewable and
+  # edited in place (then `./scripts/dashboard.sh up` to reload). Homepage reads
+  # its YAML from /app/config on every request, so edits show up on refresh.
+  #
+  # HOST VALIDATION: since v1.0 Homepage refuses any request whose Host header is
+  # not in HOMEPAGE_ALLOWED_HOSTS (a defense against DNS-rebind / wrong-Host
+  # attacks via its API proxy). Caddy preserves the Host header when proxying, so
+  # we allow exactly home.${BASE_DOMAIN}; localhost:3000 is always allowed too.
+  # The value tracks BASE_DOMAIN automatically (home.localhost by default,
+  # home.example.com once BASE_DOMAIN is a real domain).
+  # -------------------------------------------------------------------------
+  homepage:
+    image: ghcr.io/gethomepage/homepage:v1.13.1     # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_homepage
+    restart: unless-stopped
+    networks:
+      - internal           # reach the other services by name for health checks
+      - proxy              # fronted by Caddy at home.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # Host(s) Homepage will answer on behind the proxy (see block comment).
+      HOMEPAGE_ALLOWED_HOSTS: home.${BASE_DOMAIN:-localhost}
+      # Substituted into services.yaml as {{HOMEPAGE_VAR_BASE_DOMAIN}} so every
+      # card's href points at the right https://<sub>.<domain>. Not a secret.
+      HOMEPAGE_VAR_BASE_DOMAIN: ${BASE_DOMAIN:-localhost}
+      # OPTIONAL widget API key example — empty by default, supplied from .env
+      # only (see the DASHBOARD section of .env.example). The committed config
+      # keeps the matching Portainer widget COMMENTED OUT until a key is set, so
+      # nothing here ever requires a secret. Add more HOMEPAGE_VAR_* the same way.
+      HOMEPAGE_VAR_PORTAINER_KEY: ${HOMEPAGE_VAR_PORTAINER_KEY:-}
+    volumes:
+      # Committed starter config (read-write: Homepage may create any missing
+      # default files on first boot). Path is relative to the project root — the
+      # dashboard.sh helper pins --project-directory there so it resolves.
+      - ./services/dashboard/config:/app/config
+      # NOTE: the Docker socket is intentionally NOT mounted. Homepage can show
+      # live container stats if given /var/run/docker.sock, but that is a
+      # privileged grant we avoid by default. Health here is plain HTTP probes
+      # (siteMonitor) over the internal network instead. To opt in later, see
+      # the commented block in services/dashboard/config/docker.yaml.
+    deploy:
+      resources:
+        limits:
+          # Homepage is a light Next.js app; 256M is a modest, comfortable cap.
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The names MUST match the base file —
+# do NOT invent new networks. homepage sits on BOTH `internal` (to probe the
+# other services) and `proxy` (so Caddy fronts it).
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

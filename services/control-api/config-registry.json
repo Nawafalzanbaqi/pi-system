@@ -1,0 +1,209 @@
+{
+  "_comment": [
+    "pi-system Control API — CONFIG / INTEGRATION REGISTRY (the allowlist).",
+    "",
+    "This file is the SINGLE SOURCE OF TRUTH for which .env keys the Control API is",
+    "allowed to read and write. It is an ALLOWLIST: the API can ONLY ever touch a key",
+    "that appears here — never an arbitrary .env variable. Each key declares:",
+    "  key             the exact .env variable name.",
+    "  label           a human-friendly name for the web UI.",
+    "  secret          true  -> the VALUE is never returned to the client (masked /",
+    "                          set / empty only) and never written to any log.",
+    "                  false -> a non-sensitive setting (its value MAY be shown).",
+    "  service         the platform service this key belongs to (informational).",
+    "  restart_services  which services must be RESTARTED for the change to take",
+    "                  effect. Each name MUST be in the bot-exec restart allowlist",
+    "                  (scripts/lib/bot-lib.sh BOT_VALID_SERVICE). [] = nothing to",
+    "                  restart (e.g. one-shot jobs that read env at run time, or",
+    "                  project-level credentials consumed on the next deploy).",
+    "  validate        a basic SHAPE check applied before a value is written:",
+    "                  telegram_token | digits_csv | digits | enum | url | token |",
+    "                  text. (Independently, NO value may ever contain a newline —",
+    "                  the writer rejects that to prevent .env line injection.)",
+    "  allow_empty     true -> the key may be cleared (disable an integration).",
+    "",
+    "SECURITY: secret VALUES are NEVER returned by GET /api/integrations and NEVER",
+    "appear in the audit log. Editing init-time secrets that would corrupt an already",
+    "initialized datastore (e.g. a database password) is deliberately NOT offered here."
+  ],
+  "version": 1,
+  "integrations": [
+    {
+      "id": "telegram",
+      "label": "Telegram management bot",
+      "description": "Operator-only bot that monitors/controls the platform from Telegram (runs as an n8n workflow through the audited bot-exec bridge).",
+      "keys": [
+        {
+          "key": "TELEGRAM_BOT_TOKEN",
+          "label": "Bot token (from BotFather)",
+          "secret": true,
+          "service": "automation",
+          "restart_services": ["automation"],
+          "validate": "telegram_token",
+          "allow_empty": true,
+          "note": "HTTP API token from @BotFather. In n8n this is normally a Telegram credential; setting it here keeps .env in sync."
+        },
+        {
+          "key": "TELEGRAM_ALLOWED_IDS",
+          "label": "Allowed Telegram user IDs",
+          "secret": false,
+          "service": "automation",
+          "restart_services": ["automation"],
+          "validate": "digits_csv",
+          "allow_empty": true,
+          "note": "Comma/space-separated NUMERIC ids permitted to command the bot. Empty = the bot authorizes no one (fail closed)."
+        }
+      ]
+    },
+    {
+      "id": "ai",
+      "label": "AI enrichment (SEO / prospects)",
+      "description": "Optional, swappable AI provider used by the SEO auditor and prospect organizer. Off by default; both jobs are one-shot and read these at run time, so nothing needs restarting.",
+      "keys": [
+        {
+          "key": "AI_PROVIDER",
+          "label": "AI provider",
+          "secret": false,
+          "service": "seo",
+          "restart_services": [],
+          "validate": "enum",
+          "enum": ["openai", "anthropic", "compatible", "none"],
+          "allow_empty": true,
+          "note": "Blank or 'none' keeps the engine FREE and rule-based (no network call is ever made)."
+        },
+        {
+          "key": "AI_API_KEY",
+          "label": "AI API key",
+          "secret": true,
+          "service": "seo",
+          "restart_services": [],
+          "validate": "token",
+          "allow_empty": true,
+          "note": "Your own API key. Usage is billed on your account. Required to enable AI enrichment."
+        },
+        {
+          "key": "AI_MODEL",
+          "label": "AI model id",
+          "secret": false,
+          "service": "seo",
+          "restart_services": [],
+          "validate": "text",
+          "allow_empty": true
+        },
+        {
+          "key": "AI_BASE_URL",
+          "label": "AI base URL (compatible endpoints)",
+          "secret": false,
+          "service": "seo",
+          "restart_services": [],
+          "validate": "url",
+          "allow_empty": true
+        }
+      ]
+    },
+    {
+      "id": "analytics",
+      "label": "Web analytics (Umami)",
+      "description": "Self-hosted, privacy-first web analytics. Only the app secret is editable here; the dedicated database password is intentionally not exposed (rotating it would break the initialized store).",
+      "keys": [
+        {
+          "key": "ANALYTICS_APP_SECRET",
+          "label": "Umami app secret",
+          "secret": true,
+          "service": "analytics",
+          "restart_services": ["analytics"],
+          "validate": "token",
+          "allow_empty": false,
+          "note": "Signs Umami auth tokens. Rotating it logs every Umami user out (no data loss). Restart the analytics service afterwards."
+        }
+      ]
+    },
+    {
+      "id": "whatsapp",
+      "label": "WhatsApp Business integration",
+      "description": "Credentials for the (deferred) WhatsApp Business API integration used by generated projects. Consumed by a project on its next deploy, so no platform service needs restarting.",
+      "keys": [
+        {
+          "key": "WHATSAPP_API_TOKEN",
+          "label": "WhatsApp API access token",
+          "secret": true,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "token",
+          "allow_empty": true
+        },
+        {
+          "key": "WHATSAPP_PHONE_NUMBER_ID",
+          "label": "WhatsApp phone number id",
+          "secret": false,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "digits",
+          "allow_empty": true
+        },
+        {
+          "key": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+          "label": "WhatsApp business account id",
+          "secret": false,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "digits",
+          "allow_empty": true
+        },
+        {
+          "key": "WHATSAPP_VERIFY_TOKEN",
+          "label": "WhatsApp webhook verify token",
+          "secret": true,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "token",
+          "allow_empty": true
+        }
+      ]
+    },
+    {
+      "id": "payments",
+      "label": "Local payments",
+      "description": "Credentials for the (deferred) local payment gateway integration (e.g. Moyasar / mada / STC Pay) used by generated projects. Consumed by a project on its next deploy.",
+      "keys": [
+        {
+          "key": "PAYMENTS_PROVIDER",
+          "label": "Payment provider",
+          "secret": false,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "enum",
+          "enum": ["moyasar", "none"],
+          "allow_empty": true
+        },
+        {
+          "key": "PAYMENTS_API_KEY",
+          "label": "Payment secret API key",
+          "secret": true,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "token",
+          "allow_empty": true
+        },
+        {
+          "key": "PAYMENTS_PUBLISHABLE_KEY",
+          "label": "Payment publishable key",
+          "secret": false,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "token",
+          "allow_empty": true
+        },
+        {
+          "key": "PAYMENTS_WEBHOOK_SECRET",
+          "label": "Payment webhook signing secret",
+          "secret": true,
+          "service": "projects",
+          "restart_services": [],
+          "validate": "token",
+          "allow_empty": true
+        }
+      ]
+    }
+  ]
+}

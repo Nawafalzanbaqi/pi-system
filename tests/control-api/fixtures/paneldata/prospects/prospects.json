@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "prospects": {
+    "alpha-co": {
+      "schema": 1, "id": "alpha-co", "name": "Alpha Co", "url": "https://alpha.example",
+      "status": "contacted", "notes": [{ "ts": "2026-05-10T09:00:00.000Z", "text": "interested" }],
+      "followup": "2026-06-01", "createdAt": "2026-05-10T09:00:00.000Z", "updatedAt": "2026-05-12T09:00:00.000Z",
+      "lastAnalysis": {
+        "ts": "2026-05-20T14:30:00.000Z", "engine": "probe", "url": "https://alpha.example",
+        "reportFile": "/data/prospects/reports/alpha-co-20260520.md",
+        "scores": { "performance": 42, "accessibility": 71, "best-practices": 60, "seo": 58 },
+        "counts": { "critical": 1, "high": 2, "medium": 3, "low": 1 },
+        "summary": "HTTPS missing; large images; 3 pages lack meta descriptions."
+      }
+    },
+    "beta-llc": {
+      "schema": 1, "id": "beta-llc", "name": "Beta LLC", "url": null,
+      "status": "new", "notes": [], "followup": null,
+      "createdAt": "2026-05-15T09:00:00.000Z", "updatedAt": "2026-05-15T09:00:00.000Z", "lastAnalysis": null
+    }
+  }
+}

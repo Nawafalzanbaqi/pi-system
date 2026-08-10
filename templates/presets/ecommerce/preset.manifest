@@ -1,0 +1,46 @@
+# ===========================================================================
+# pi-system sector preset — DECLARATION ONLY (no app code). See ../README.md.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: ecommerce
+
+# One line describing the sector this preset targets.
+description: Online store — catalogue, cart, checkout with local payment methods.
+
+# available — every module this preset composes is implemented (the credentialed
+# ones run on a mock provider by default; see each module's SETUP.md to go live).
+status: available
+
+# Base shape this preset uses: dotnet-api | nextjs-app | fullstack.
+base: fullstack
+
+# Default database engine (overridable with --db).
+database: postgres
+
+# Default locale ar|en (overridable with --locale). ar => RTL by default.
+default_locale: ar
+
+# Modules this preset composes, in order. ALL SIX are implemented (composed in now).
+# local-payments and whatsapp-integration each ship a working MOCK provider by
+# default, so they compose and run immediately; switching them to the live providers
+# (Moyasar for payments — mada/Apple Pay/cards; the WhatsApp Cloud API) needs
+# external merchant/business credentials (one-time steps in each module's SETUP.md).
+# The store is fully functional on the mocks until then.
+# web-analytics is included because a store wants to see traffic, sources and which
+# products get clicked. It stays OPTIONAL and strictly opt-in: the snippet renders
+# nothing until ANALYTICS_* is set in .env (drop it from this list to opt out).
+# seo-toolkit is included because a store lives or dies by discoverability — it adds
+# the on-page SEO defaults (meta + Open Graph, a bilingual sitemap.xml & robots.txt,
+# JSON-LD) the SEO auditor (services/seo) then checks. It needs no credentials.
+# auth-sso is NOT included by default: the store admin uses Directus' own login,
+# and customer accounts are optional. Add it explicitly with `--modules auth-sso`
+# if this store needs customer/staff SSO.
+#   local-payments        implemented (composed in — mock by default; live needs Moyasar creds)
+#   content-admin         implemented (composed in — Directus headless CMS)
+#   i18n-bilingual        implemented (composed in — Arabic/English + RTL)
+#   whatsapp-integration  implemented (composed in — mock by default; live needs Meta creds)
+#   web-analytics         implemented (composed in — privacy-first, self-hosted; opt-in via .env)
+#   seo-toolkit           implemented (composed in — on-page SEO defaults; bilingual; no creds)
+modules: local-payments, content-admin, i18n-bilingual, whatsapp-integration, web-analytics, seo-toolkit

@@ -1,0 +1,18 @@
+# Fixture (secret-free). The Compose-v2 short form (mem_limit) AND a service
+# with NO memory limit at all (the missing-limit detection case).
+name: fixture-b
+
+services:
+  gamma:
+    image: example/gamma:1.0
+    mem_limit: 1G            # short form -> 1024 MiB
+  delta:
+    image: example/delta:1.0
+    # deliberately NO memory limit -> must surface as MISSING
+    environment:
+      FOO: bar               # a deeper key must not be read as a service/limit
+
+networks:
+  internal:
+    name: fixture_internal
+    driver: bridge

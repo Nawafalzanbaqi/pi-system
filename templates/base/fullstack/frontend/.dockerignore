@@ -1,0 +1,9 @@
+# Keep the build context small; these are rebuilt inside the image.
+node_modules/
+.next/
+npm-debug.log*
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+README.md

@@ -1,0 +1,72 @@
+# ===========================================================================
+# pi-system — Verdaccio configuration (committed, SECRET-FREE)
+# ---------------------------------------------------------------------------
+# Bind-mounted READ-ONLY into the container at /verdaccio/conf/config.yaml by
+# services/cache/cache.compose.yml. It configures Verdaccio as a transparent
+# read-through CACHE of the public npm registry for the projects on this Pi.
+#
+# There are NO secrets here. Anyone can READ (so `npm install` works with no
+# login); PUBLISHING requires a user, and self-registration is disabled — to
+# host your own internal packages, create a user once with htpasswd (see
+# services/cache/README.md). Cached tarballs + the htpasswd file live in the
+# named volume (/verdaccio/storage), so this file can stay read-only.
+# ===========================================================================
+
+# Where cached packages (and the optional htpasswd) are stored — the named
+# volume mounted by the compose file.
+storage: /verdaccio/storage
+# Bundled plugins shipped in the image.
+plugins: /verdaccio/plugins
+
+# Web UI (fronted by Caddy at cache.${BASE_DOMAIN}).
+web:
+  title: pi-system npm cache
+  # No analytics / gravatar calls out to the internet for the UI.
+  gravatar: false
+
+# Authentication via htpasswd. The file lives on the writable storage volume so
+# the config mount can stay read-only. max_users: -1 DISABLES open
+# self-registration (a cache should not let arbitrary users sign up); add users
+# deliberately with htpasswd to enable publishing your own packages.
+auth:
+  htpasswd:
+    file: /verdaccio/storage/htpasswd
+    max_users: -1
+
+# Upstream registry that Verdaccio proxies AND caches. This is what turns it
+# into a read-through cache: a package not held locally is fetched from npmjs,
+# stored, and served from the cache next time.
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+    cache: true
+    maxage: 30m
+    # Be patient on a slow/cold link before giving up on the upstream.
+    timeout: 30s
+    max_fails: 5
+    fail_timeout: 5m
+
+# Access policy. $all = anonymous read (installs work with no login); publishing
+# and unpublishing require an authenticated user; everything proxies to npmjs.
+packages:
+  '@*/*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: npmjs
+  '**':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: npmjs
+
+# Let `npm audit` work through the cache (proxied to the upstream).
+middlewares:
+  audit:
+    enabled: true
+
+server:
+  keepAliveTimeout: 60
+
+# Log to stdout so `./scripts/cache.sh logs` shows requests/cache activity.
+log: { type: stdout, format: pretty, level: http }

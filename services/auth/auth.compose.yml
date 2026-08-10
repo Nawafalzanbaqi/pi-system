@@ -1,0 +1,165 @@
+# ===========================================================================
+# pi-system — authentication layer (Keycloak SSO / OIDC)
+# ---------------------------------------------------------------------------
+# Stands up a centralized identity provider so a single login can later guard
+# the platform's UIs and apps over OIDC / OAuth2 / SAML. This phase ONLY brings
+# Keycloak (and its OWN database) online — wiring individual apps/UIs behind it
+# (realms, clients, redirect URIs) comes in a later phase.
+#
+# Two services, brought up together as one unit (no Compose profiles here):
+#
+#   keycloak-db  -> a DEDICATED PostgreSQL, isolated from the shared databases
+#                   in services/databases. Internal-only, no host ports, its
+#                   own named volume. Keycloak gets its own private store so its
+#                   identity data never mixes with application databases.
+#   keycloak     -> the Keycloak server itself (JVM/Quarkus). On BOTH networks:
+#                   `internal` to reach keycloak-db, `proxy` so Caddy fronts it.
+#                   Publishes NO host ports — reached only via Caddy at
+#                   auth.${BASE_DOMAIN}.
+#
+# ALWAYS run together with the base compose file so the shared `internal` /
+# `proxy` networks (and their subnet/IPAM) are inherited:
+#
+#   docker compose --env-file .env \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/auth/auth.compose.yml \
+#     up -d
+#
+# Or simply use the helper:   ./scripts/auth.sh up
+#
+# RESOURCE NOTE: Keycloak is JVM-based and is the HEAVIEST service in pi-system
+# so far. Its memory limit (768M) is several times that of the other services
+# and its JVM heap is capped (JAVA_OPTS_KC_HEAP) to stay within it. First boot
+# is also slow on a Pi because production mode re-augments the server. Bring it
+# up only when you need it and take it down when idle — see docs/README.md.
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5. Both tags below
+#     are verified multi-arch incl. linux/arm64 (the Pi 5's Cortex-A76).
+#   * Every image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file — values come from the root .env only.
+#   * keycloak-db is internal-only with no host ports; Keycloak exposes no host
+#     ports either and is reachable only through Caddy on the `proxy` network.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # keycloak-db — Keycloak's OWN, dedicated PostgreSQL.
+  # Deliberately separate from the shared engines in services/databases: an
+  # identity store has a different lifecycle and blast radius than application
+  # data, so it gets its own container and its own keycloak_db_data volume.
+  # Internal-only, reached by Keycloak as `keycloak-db:5432`. The same three
+  # KC_DB_* values from .env configure both this image (as POSTGRES_*) and
+  # Keycloak's connection settings below.
+  # -------------------------------------------------------------------------
+  keycloak-db:
+    image: postgres:16.6-alpine                    # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_keycloak-db
+    restart: unless-stopped
+    networks:
+      - internal           # internal-only; reached as `keycloak-db:5432`
+    security_opt:
+      - no-new-privileges:true
+    # Credentials strictly from .env (the image REQUIRES POSTGRES_PASSWORD).
+    environment:
+      POSTGRES_USER: ${KC_DB_USERNAME}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+      POSTGRES_DB: ${KC_DB_NAME}
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes Compose interpolation so the literal $VAR reaches the shell
+      # INSIDE the container, where POSTGRES_USER / POSTGRES_DB are defined.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # keycloak — the identity provider, configured for a reverse-proxy
+  # deployment behind Caddy. Runs in production mode (`start`); because build
+  # options (KC_DB) are supplied at runtime rather than baked via `kc.sh build`,
+  # the server re-augments itself on first boot, which is slow on a Pi.
+  #
+  # Reverse-proxy settings:
+  #   * KC_PROXY_HEADERS=xforwarded — trust Caddy's X-Forwarded-* headers
+  #     (Caddy sets X-Forwarded-For/Proto/Host by default), so Keycloak builds
+  #     correct absolute https URLs even though TLS is terminated upstream.
+  #   * KC_HTTP_ENABLED=true — accept plain HTTP on the internal hop from Caddy.
+  #   * KC_HOSTNAME — the external base URL (driven by .env). Blank => Keycloak
+  #     derives host/scheme from the forwarded headers (works at
+  #     https://auth.localhost for local use). Set it to the real public URL in
+  #     production so tokens/redirects use a fixed, correct address.
+  #   * KC_HOSTNAME_STRICT=false — required so a blank KC_HOSTNAME is allowed in
+  #     production mode; pinning KC_HOSTNAME is the production-hardening step.
+  # Reached by Caddy as `keycloak:8080` (Keycloak's default internal HTTP port).
+  # -------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.2        # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_keycloak
+    command: ["start"]                             # production mode
+    restart: unless-stopped
+    depends_on:
+      keycloak-db:
+        condition: service_healthy                 # wait for the DB to be ready
+    networks:
+      - internal           # reach the dedicated DB as `keycloak-db:5432`
+      - proxy              # fronted by Caddy at auth.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # --- Database connection (the dedicated keycloak-db above) ------------
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: ${KC_DB_NAME}
+      KC_DB_USERNAME: ${KC_DB_USERNAME}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      # --- Bootstrap admin (first setup only) ------------------------------
+      # Temporary initial admin used to log in once and create a permanent
+      # admin user; see docs/README.md. (Keycloak 26 renamed the old
+      # KEYCLOAK_ADMIN* vars to KC_BOOTSTRAP_ADMIN_*.)
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      # --- Reverse-proxy / hostname (see block comment above) --------------
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: ${KC_HOSTNAME:-}
+      KC_HOSTNAME_STRICT: "false"
+      # --- JVM heap, capped to fit the container memory limit on a Pi -------
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx512m"
+    deploy:
+      resources:
+        limits:
+          # Keycloak needs far more than the other services (JVM + Quarkus).
+          # 768M leaves headroom above the 512M max heap for metaspace, the
+          # startup augmentation and off-heap buffers. See docs/README.md.
+          memory: 768M
+
+# ---------------------------------------------------------------------------
+# Named volume for Keycloak's dedicated database (project-name prefixed, e.g.
+# "pi-system_keycloak_db_data"). `./scripts/auth.sh down` removes only the
+# containers — this volume, and thus all identity data, survives.
+# ---------------------------------------------------------------------------
+volumes:
+  keycloak_db_data:
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The names MUST match the base file —
+# do NOT invent new networks. keycloak-db sits on `internal` only; Keycloak
+# sits on BOTH `internal` (to reach its DB) and `proxy` (so Caddy fronts it).
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

@@ -1,0 +1,23 @@
+# pi-system preflight TEST FIXTURE — a structurally-clean compose snippet.
+# Used to verify the pure parsers (image / host-port / container-name / volume
+# extraction). NOT a real service; never started.
+name: preflight-fixture
+
+services:
+  web:
+    image: nginx:1.27.3-alpine            # literal upstream tag -> extracted
+    container_name: fixture_web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"                     # same port, different proto: NOT a collision
+      # - "9000:9000"                     # commented bootstrap port: MUST be ignored
+
+  builtlocal:
+    build: .
+    image: ${COMPOSE_PROJECT_NAME:-x}/local:1.0.0   # interpolated -> SKIPPED (local build)
+    container_name: fixture_local
+
+volumes:
+  web_data:
+  web_cache:

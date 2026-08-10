@@ -1,0 +1,30 @@
+---
+# ===========================================================================
+# Homepage — global settings (services/dashboard/config/settings.yaml)
+# ---------------------------------------------------------------------------
+# Look & feel only. No secrets here. The `layout` keys MUST match the group
+# names used in services.yaml. Docs: https://gethomepage.dev/configs/settings/
+# ===========================================================================
+
+title: pi-system
+description: Unified dashboard for the pi-system platform
+
+# Clean header, dark theme — easy on the eyes on a wall-mounted Pi display.
+headerStyle: clean
+theme: dark
+color: slate
+
+# How each service group renders. Group names must match services.yaml.
+layout:
+  Platform Management:
+    style: row
+    columns: 2
+  Identity & Automation:
+    style: row
+    columns: 2
+  Database Admin:
+    style: row
+    columns: 3
+  Projects:
+    style: row
+    columns: 3

@@ -1,0 +1,61 @@
+# ===========================================================================
+# pi-system module declaration — see ../README.md for the full contract.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: content-admin
+
+# One line describing what the module does.
+description: Headless CMS (Directus) for managing site content — pages, posts, navigation, settings.
+
+# implemented = the generator composes it in. planned = skipped + recorded as a TODO.
+status: implemented
+
+# Base shapes this module supports (comma-separated, or "all").
+# It composes for EVERY base: the CMS itself is a self-contained container
+# (see compose: below), and each base gets the right client integration via the
+# per-base files/ subtrees — a Next.js fetch wrapper for nextjs-app and the
+# fullstack frontend, and a .NET HttpClient helper for dotnet-api and the
+# fullstack backend.
+base_compatible: all
+
+# Database engine this module needs: postgres | mysql | mongo | none.
+# Directus supports any SQL database (PostgreSQL, MySQL, SQLite, …); PostgreSQL
+# is recommended (jsonb makes flexible content models efficient). To stay
+# self-contained and independent of the PROJECT's own --db choice, this module
+# ships its OWN dedicated, isolated PostgreSQL in the compose fragment (mirroring
+# how the auth layer bundles a private DB for Keycloak) — so content-admin works
+# unchanged whether the project itself uses postgres, mysql, mongo or none.
+database: postgres
+
+# External account / approved API keys required to activate, or "none".
+# The CMS admin user is created from env vars on first boot — no external service.
+external_credentials: none
+
+# Env vars this module needs, as EMPTY templates (names only), or "none".
+# The generator appends these (blank) to the project's .env.example section.
+# All are filled in .env (never committed):
+#   CMS_KEY            Directus instance KEY  (random string; identifies the instance)
+#   CMS_SECRET         Directus SECRET        (random string; signs access tokens)
+#   CMS_ADMIN_EMAIL    first admin login, created on first boot (e.g. you@example.com)
+#   CMS_ADMIN_PASSWORD first admin password (strong; change it after first login)
+#   CMS_DB_PASSWORD    password for the bundled, internal-only CMS PostgreSQL
+#   CMS_PUBLIC_URL     OPTIONAL — Directus PUBLIC_URL (defaults to "/" = relative)
+env: CMS_KEY, CMS_SECRET, CMS_ADMIN_EMAIL, CMS_ADMIN_PASSWORD, CMS_DB_PASSWORD, CMS_PUBLIC_URL
+
+# Source files this module layers onto the project (relative path), or "none".
+# Per-base subtrees only (no generic tree), so each base gets exactly its own
+# client and nothing else: files/nextjs-app, files/fullstack, files/dotnet-api.
+# The generator picks files/<base>/ and substitutes the base placeholders.
+files: files
+
+# Compose fragment this module contributes (relative path), or "none".
+# Stands up Directus + its dedicated PostgreSQL, internal-only, no host ports.
+compose: service.compose.yml
+
+# Caddy snippet this module adds to the project's site block (relative path), or "none".
+# The CMS is internal-only by design (no host ports, not on the proxy network),
+# so it adds NO public route. The /admin UI is reached over an SSH tunnel via the
+# commented bootstrap port in the compose fragment — see this module's README.
+caddy_routes: none

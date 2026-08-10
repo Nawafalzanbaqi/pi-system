@@ -1,0 +1,88 @@
+---
+# ===========================================================================
+# Homepage — service cards (services/dashboard/config/services.yaml)
+# ---------------------------------------------------------------------------
+# Every card links to a platform service through Caddy. URLs are built from the
+# base domain at runtime: {{HOMEPAGE_VAR_BASE_DOMAIN}} is replaced with the
+# value of HOMEPAGE_VAR_BASE_DOMAIN (set in dashboard.compose.yml from
+# ${BASE_DOMAIN}). So locally these resolve to https://<sub>.localhost and in
+# production to https://<sub>.your-domain — with NO edits to this file.
+#
+# `siteMonitor` is a simple, SECRET-FREE HTTP health probe: Homepage (on the
+# `internal` network) hits the service BY NAME and shows an up/down dot. Services
+# that are on-demand (db-admin UIs, and auth/automation if you stop them) will
+# show "down" until you start them — that is expected, not an error.
+#
+# NO secrets live in this file. Richer app widgets that need an API key are kept
+# COMMENTED OUT and pull the key from HOMEPAGE_VAR_* (see the Portainer example).
+# Docs: https://gethomepage.dev/configs/services/
+# ===========================================================================
+
+- Platform Management:
+    - Portainer:
+        icon: portainer.png
+        href: https://portainer.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: Docker container management UI
+        siteMonitor: http://portainer:9000
+        # OPTIONAL richer widget (running/stopped container counts). It needs a
+        # Portainer API access token — NEVER hard-code it here. Set
+        # HOMEPAGE_VAR_PORTAINER_KEY in .env (it is wired into the container in
+        # dashboard.compose.yml) and uncomment. Until then the siteMonitor above
+        # already gives a simple up/down indicator with no credentials at all.
+        # widget:
+        #   type: portainer
+        #   url: http://portainer:9000
+        #   env: 2
+        #   key: "{{HOMEPAGE_VAR_PORTAINER_KEY}}"
+    - Uptime Kuma:
+        icon: uptime-kuma.png
+        href: https://status.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: Uptime monitoring & public status page
+        siteMonitor: http://uptime-kuma:3001
+
+- Identity & Automation:
+    - Keycloak:
+        icon: keycloak.png
+        href: https://auth.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: SSO / OIDC identity provider (on-demand)
+        siteMonitor: http://keycloak:8080
+    - n8n:
+        icon: n8n.png
+        href: https://automation.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: Workflow automation engine (on-demand)
+        siteMonitor: http://n8n:5678
+
+- Database Admin:
+    - pgAdmin:
+        icon: pgadmin.png
+        href: https://pgadmin.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: PostgreSQL admin UI (profile, on-demand)
+        siteMonitor: http://pgadmin:80
+    - Adminer:
+        icon: adminer.png
+        href: https://adminer.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: MySQL / PostgreSQL admin UI (profile, on-demand)
+        siteMonitor: http://adminer:8080
+    - Mongo Express:
+        icon: mongodb.png
+        href: https://mongo-express.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: MongoDB admin UI (profile, on-demand)
+        siteMonitor: http://mongo-express:8081
+
+- Projects:
+    # Projects scaffolded by scripts/new-project.sh are published at
+    # https://<subdomain>.{{HOMEPAGE_VAR_BASE_DOMAIN}}. Add one card per project.
+    # Example for a "clinic" project (fullstack frontend service `clinic-web`):
+    #
+    # - Clinic:
+    #     icon: mdi-hospital-box
+    #     href: https://clinic.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+    #     description: Clinic booking site
+    #     siteMonitor: http://clinic-web:3000
+    #
+    # The placeholder card below just points back here — replace it with your
+    # real projects (and delete it once you have at least one).
+    - Add your projects:
+        icon: mdi-folder-plus-outline
+        href: https://home.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+        description: Edit services/dashboard/config/services.yaml

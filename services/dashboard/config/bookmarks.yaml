@@ -1,0 +1,17 @@
+---
+# ===========================================================================
+# Homepage — bookmarks (services/dashboard/config/bookmarks.yaml)
+# ---------------------------------------------------------------------------
+# Plain quick links (no health, no widgets, no secrets). Add your own here.
+# Docs: https://gethomepage.dev/configs/bookmarks/
+# ===========================================================================
+
+- Reference:
+    - Platform README:
+        - abbr: PI
+          href: https://home.{{HOMEPAGE_VAR_BASE_DOMAIN}}
+          description: This dashboard
+    - Homepage docs:
+        - abbr: HP
+          href: https://gethomepage.dev/
+          description: Configure cards, widgets & themes

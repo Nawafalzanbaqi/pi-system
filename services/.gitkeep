@@ -1,0 +1,4 @@
+# Placeholder so /services is tracked in git while empty.
+# Each future service (e.g. reverse proxy, .NET API, Next.js app, database)
+# gets its own subfolder here with its own docker-compose.yml that attaches to
+# the shared networks defined in /infrastructure/docker-compose.yml.

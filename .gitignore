@@ -1,0 +1,59 @@
+# ===========================================================================
+# pi-system — .gitignore
+# ===========================================================================
+
+# --- Environment files (never commit real values) --------------------------
+.env
+.env.*
+!.env.example
+
+# --- Secrets (passwords, keys, certificates) -------------------------------
+# Ignore everything inside /secrets but keep the folder in the repo.
+/secrets/*
+!/secrets/.gitkeep
+
+# --- Runtime data / persistent volumes -------------------------------------
+# Ignore everything inside /data but keep the folder in the repo.
+/data/*
+!/data/.gitkeep
+
+# --- Sensitive / credential file types (anywhere) --------------------------
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+*.keystore
+*.secret
+credentials.json
+
+# --- Backups / dumps / logs ------------------------------------------------
+*.bak
+*.dump
+*.sql.gz
+*.log
+logs/
+
+# --- Node build artifacts (control-api + generated Next.js projects) --------
+# These are produced INSIDE the Docker image at build time; never commit them.
+# Lockfiles (package-lock.json) ARE committed for reproducible `npm ci`.
+node_modules/
+.next/
+npm-debug.log*
+
+# --- OS / editor cruft -----------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
+
+# --- .NET build artifacts (template scaffolds) -----------------------------
+bin/
+obj/
+
+# --- Local agent config -----------------------------------------------------
+.claude/

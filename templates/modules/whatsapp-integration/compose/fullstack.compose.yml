@@ -1,0 +1,35 @@
+# ===========================================================================
+# pi-system module: whatsapp-integration (fullstack) — sender env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: whatsapp-integration).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh. Adds NO new
+# container and NO host ports. On fullstack the .NET BACKEND owns the swappable
+# provider (it holds the access token); the frontend calls it server-side via the
+# BACKEND_URL the base already injects, so the web service needs no WhatsApp env.
+#
+#   __PROJECT_NAME__-api  -> gets the WHATSAPP_* env + the HostingStartup flag that
+#                            activates the additive sender (additive: never replaces
+#                            bookings' Program.cs / app.csproj; shares the flag value
+#                            with auth-sso when both are composed).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__-api:
+    environment:
+      ASPNETCORE_HOSTINGSTARTUPASSEMBLIES: "app"
+      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-mock}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

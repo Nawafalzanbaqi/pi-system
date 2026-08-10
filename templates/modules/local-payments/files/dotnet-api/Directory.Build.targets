@@ -1,0 +1,34 @@
+<Project>
+
+  <!-- ========================================================================
+       local-payments (__PROJECT_NAME__) — ADDITIVE backend dependency.
+
+       MSBuild auto-imports Directory.Build.targets for the project in this folder
+       (at the END of evaluation, so the project's own PackageReferences are already
+       known). This adds the Npgsql PostgreSQL driver used by the payments data
+       access (Payments/PaymentsRepository.cs) WITHOUT editing app.csproj.
+
+       Why .targets (not .props): the auth-sso module ships Directory.Build.PROPS, so
+       using .targets here avoids a filename collision — both apply.
+
+       Why CONDITIONAL: the bookings module's app.csproj already references Npgsql.
+       When bookings is also composed in, this ItemGroup is SKIPPED (the condition
+       checks whether Npgsql is already a PackageReference), so the package is never
+       added twice. When local-payments is composed WITHOUT bookings, it is added.
+       Either way the project ends up with exactly one Npgsql reference.
+
+       The package is pinned (never floating) at the same version bookings uses, so
+       the two modules agree. It is exposed as a property only so the version can be
+       matched to a different SDK when verifying on a machine without the net10 SDK
+       (e.g. -p:PiNpgsqlVersion=9.0.3 under net8); normal builds use the default.
+       ===================================================================== -->
+
+  <PropertyGroup>
+    <PiNpgsqlVersion Condition="'$(PiNpgsqlVersion)' == ''">9.0.3</PiNpgsqlVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'@(PackageReference->AnyHaveMetadataValue('Identity', 'Npgsql'))' != 'true'">
+    <PackageReference Include="Npgsql" Version="$(PiNpgsqlVersion)" />
+  </ItemGroup>
+
+</Project>

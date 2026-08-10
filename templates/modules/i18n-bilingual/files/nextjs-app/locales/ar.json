@@ -1,0 +1,10 @@
+{
+  "appName": "__PROJECT_NAME__",
+  "greeting": "مرحبًا بك",
+  "tagline": "تطبيق ثنائي اللغة (عربي/إنجليزي) جاهز للتشغيل من منصة pi-system.",
+  "currentLanguage": "اللغة الحالية",
+  "direction": "اتجاه النص",
+  "switchLanguage": "تغيير اللغة",
+  "home": "الرئيسية",
+  "healthCheck": "فحص الحالة"
+}

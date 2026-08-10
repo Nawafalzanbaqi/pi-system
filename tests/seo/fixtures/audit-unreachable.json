@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "name": "down-site",
+  "url": "https://down.example.com",
+  "engine": "probe",
+  "timestamp": "2026-05-23T10:00:00.000Z",
+  "ok": false,
+  "status": 503,
+  "metrics": {
+    "responseMs": 50,
+    "htmlBytes": 0,
+    "requests": 1
+  },
+  "checks": {
+    "https": true,
+    "robotsTxt": null,
+    "sitemapXml": null
+  },
+  "scores": {
+    "performance": 0,
+    "accessibility": 0,
+    "best-practices": 0,
+    "seo": 0
+  }
+}

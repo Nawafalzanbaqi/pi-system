@@ -1,0 +1,68 @@
+# ===========================================================================
+# pi-system module declaration — see ../README.md for the full contract.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: web-analytics
+
+# One line describing what the module does.
+description: Privacy-first, self-hosted web analytics (Umami) — page views, referrers and custom events for the site, via an env-gated tracking snippet pointed at the platform's analytics service.
+
+# implemented = the generator composes it in. planned = skipped + recorded as a TODO.
+status: implemented
+
+# Base shapes this module supports (comma-separated, or "all").
+# Frontend-only: it injects a tracking snippet into the Next.js app. So it composes
+# for the bases that HAVE a frontend:
+#   nextjs-app  -> the snippet at the app root (app/template.jsx + components + lib).
+#   fullstack   -> the same, under the frontend/ subtree (the web-facing service).
+# A dotnet-api base has NO frontend to inject into, so it is INCOMPATIBLE and is
+# skipped + recorded in PROJECT.md. For server-rendered HTML on a .NET app, add the
+# one-line tracker <script> to your layout by hand — see this module's README.
+base_compatible: nextjs-app, fullstack
+
+# Database engine this module needs: postgres | mysql | mongo | none.
+# None. The site only REPORTS to the analytics service (Umami) over HTTP from the
+# visitor's browser; this module stores nothing of its own. All collected analytics
+# live in the analytics service's OWN isolated database (services/analytics).
+database: none
+
+# External account / approved API keys required to activate, or "none".
+# None — analytics is fully self-hosted on this platform (services/analytics, the
+# Umami engine). There is NO Google Analytics and NO third-party tracker; nothing
+# ships visitor data off-platform. You only need the platform analytics service
+# running (./scripts/analytics.sh up) and this site's "website id" from it.
+external_credentials: none
+
+# Env vars this module needs, as EMPTY templates (names only), or "none".
+# The generator appends these (blank) to the project's .env.example section. Left
+# blank the tracker stays OFF (the snippet renders nothing — strictly opt-in). All
+# are filled in .env (never committed):
+#   ANALYTICS_SCRIPT_URL  the self-hosted tracker URL, e.g.
+#                         https://analytics.<BASE_DOMAIN>/script.js (shared by all sites)
+#   ANALYTICS_SITE_ID     THIS site's "website id" from the Umami dashboard. (Per
+#                         project you may instead set <PREFIX>ANALYTICS_SITE_ID — the
+#                         compose fragment prefers it, falling back to this shared one.)
+env: ANALYTICS_SCRIPT_URL, ANALYTICS_SITE_ID
+
+# Source files this module layers onto the project (relative path), or "none".
+# Per-base subtrees only, so each base gets the snippet at the right path:
+# files/nextjs-app (app root) and files/fullstack (under frontend/). Each ships a
+# root app/template.jsx (wraps every page WITHOUT replacing the root layout — so it
+# never fights the base or i18n layout), a server-component components/Analytics.jsx
+# (the env-gated snippet), and lib/analytics.js (config gate + a trackEvent helper).
+files: files
+
+# Compose fragment this module contributes (relative path), or "none".
+# A DIRECTORY of per-base fragments (compose/<base>.compose.yml) — the same per-base
+# idea as files/<base>/. Each MERGES the ANALYTICS_* env into the project's existing
+# web service (whose name differs by base: __PROJECT_NAME__ vs __PROJECT_NAME__-web).
+# It adds NO new container and NO host ports.
+compose: compose
+
+# Caddy snippet this module adds to the project's site block (relative path), or "none".
+# None: the tracker script is loaded from the analytics service's OWN subdomain
+# (analytics.<BASE_DOMAIN>, fronted by Caddy via services/proxy/Caddyfile), not from
+# this project's site — so this project needs no extra route and no new host ports.
+caddy_routes: none

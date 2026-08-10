@@ -1,0 +1,10 @@
+{
+  "name": "pi-seo-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "pi-system SEO/site-quality audit + rule-based recommendations engine (pure Node, no deps). The AI enrichment path is fully coded but inert until AI_PROVIDER + AI_API_KEY are set.",
+  "bin": {
+    "pi-seo-audit": "audit.js"
+  }
+}

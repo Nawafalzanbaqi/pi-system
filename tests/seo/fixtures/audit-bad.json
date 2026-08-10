@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "name": "bad-site",
+  "url": "http://bad.example.com",
+  "engine": "probe",
+  "timestamp": "2026-05-23T10:00:00.000Z",
+  "ok": true,
+  "status": 200,
+  "metrics": {
+    "responseMs": 2200,
+    "htmlBytes": 9000,
+    "requests": 1
+  },
+  "checks": {
+    "https": false,
+    "title": {
+      "present": false,
+      "length": 0
+    },
+    "metaDescription": {
+      "present": false,
+      "length": 0
+    },
+    "h1": {
+      "count": 0
+    },
+    "viewport": false,
+    "lang": null,
+    "dir": null,
+    "canonical": false,
+    "openGraph": {
+      "title": false,
+      "description": false,
+      "image": false
+    },
+    "twitterCard": false,
+    "imagesTotal": 2,
+    "imagesMissingAlt": 2,
+    "structuredData": false,
+    "robotsTxt": false,
+    "sitemapXml": false
+  },
+  "scores": {
+    "performance": 55,
+    "accessibility": 23,
+    "best-practices": 40,
+    "seo": 21
+  }
+}

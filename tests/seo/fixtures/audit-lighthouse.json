@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "name": "lh-site",
+  "url": "https://lh.example.com",
+  "engine": "lighthouse",
+  "timestamp": "2026-05-23T10:00:00.000Z",
+  "ok": true,
+  "status": 200,
+  "metrics": {
+    "responseMs": 300,
+    "lcpMs": 5200,
+    "cls": 0.35,
+    "tbtMs": 700,
+    "fcpMs": 1800,
+    "requests": 30
+  },
+  "checks": {
+    "https": true,
+    "title": {
+      "present": true,
+      "length": 40
+    },
+    "metaDescription": {
+      "present": true,
+      "length": 120
+    },
+    "h1": {
+      "count": 1
+    },
+    "viewport": true,
+    "lang": "en",
+    "canonical": true,
+    "openGraph": {
+      "title": true,
+      "description": true,
+      "image": true
+    },
+    "imagesTotal": 5,
+    "imagesMissingAlt": 0,
+    "structuredData": true,
+    "robotsTxt": true,
+    "sitemapXml": true
+  },
+  "scores": {
+    "performance": 40,
+    "accessibility": 95,
+    "best-practices": 95,
+    "seo": 95
+  }
+}

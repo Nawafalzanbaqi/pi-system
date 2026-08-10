@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Fixed assembly name so the Docker ENTRYPOINT (dotnet app.dll) is stable
+         regardless of the chosen project name (__PROJECT_NAME__). -->
+    <AssemblyName>app</AssemblyName>
+    <!-- Matches DOTNET_SYSTEM_GLOBALIZATION_INVARIANT in the Dockerfile so the
+         slim Alpine runtime needs no ICU. Drop this if you need full culture
+         support (and use a non-invariant runtime image). -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

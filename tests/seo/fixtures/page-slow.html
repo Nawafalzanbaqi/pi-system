@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slow Heavy Demo Page</title>
+  <meta name="description" content="A resource-heavy page used to prove the probe flags render-blocking assets and layout-shift risk.">
+  <link rel="stylesheet" href="/css/a.css">
+  <link rel="stylesheet" href="/css/b.css">
+  <link rel="stylesheet" href="/css/c.css">
+  <link rel="stylesheet" href="/css/d.css">
+  <script src="/js/1.js"></script>
+  <script src="/js/2.js"></script>
+  <script src="/js/3.js"></script>
+  <script src="/js/4.js"></script>
+  <script src="/js/5.js"></script>
+  <script src="/js/6.js"></script>
+  <style>.banner{display:block}.grid{display:grid;gap:8px}.card{border:1px solid #ddd;padding:12px}</style>
+  <script>window.__init=function(){var n=0;for(var i=0;i<10;i++){n+=i;}return n;};window.__init();</script>
+</head>
+<body>
+  <h1>Heavy by accident</h1>
+  <img src="/img/x.jpg" alt="Banner x">
+  <img src="/img/y.jpg" alt="Banner y">
+  <img src="/img/z.jpg" alt="Banner z">
+  <img src="/img/w.jpg" alt="Banner w">
+</body>
+</html>

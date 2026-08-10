@@ -1,0 +1,25 @@
+---
+# ===========================================================================
+# Homepage — info widgets (services/dashboard/config/widgets.yaml)
+# ---------------------------------------------------------------------------
+# The strip of widgets shown at the top of the page. Kept to SECRET-FREE,
+# self-contained widgets (no external API keys): a search box, the clock, and
+# the dashboard container's own resource usage. Anything needing an API key
+# would take it from HOMEPAGE_VAR_* in .env — none are used here.
+# Docs: https://gethomepage.dev/widgets/
+# ===========================================================================
+
+- search:
+    provider: duckduckgo
+    target: _blank
+
+- datetime:
+    text_size: xl
+    format:
+      dateStyle: short
+      timeStyle: short
+
+# CPU + memory as seen from the dashboard container (no host mounts required).
+- resources:
+    cpu: true
+    memory: true

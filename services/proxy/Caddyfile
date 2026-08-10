@@ -1,0 +1,207 @@
+# ===========================================================================
+# pi-system — Caddy reverse-proxy configuration
+# ---------------------------------------------------------------------------
+# Driven by two environment variables passed in by services/proxy/proxy.compose.yml:
+#
+#   {$BASE_DOMAIN}  the domain all service subdomains hang off.
+#                   Defaults to "localhost" (compose collapses unset/blank to it).
+#   {$CADDY_TLS}    the TLS mode for every site. Either:
+#                     * "internal"        -> Caddy's built-in, locally-trusted CA
+#                                            (no public domain required), or
+#                     * an e-mail address -> public Let's Encrypt certificates.
+#                   Compose derives this from ACME_EMAIL (blank => "internal").
+#
+# Environment substitution happens BEFORE parsing, so these expand to literal
+# tokens below. The ":default" suffixes are a belt-and-suspenders fallback for
+# the (compose-prevented) case where the variable is absent entirely.
+#
+# WebSockets (Uptime Kuma's Socket.IO, Portainer's console/stats) are proxied
+# transparently by `reverse_proxy` — no extra configuration needed.
+# ===========================================================================
+
+# ===========================================================================
+# GLOBAL OPTIONS — public hosting via Cloudflare Tunnel (ONE-TIME, not per project)
+# ---------------------------------------------------------------------------
+# pi-system-tunnel: http_port   <- marker, used by scripts/deploy-to-tunnel.sh
+#
+# This block lets a GENERATED PROJECT be published to the public internet through
+# a Cloudflare Tunnel WITHOUT opening any inbound port on the Pi, while STILL
+# getting a real public Let's Encrypt certificate from Caddy's own ACME (no
+# manual Cloudflare certificate). Full walkthrough: docs/cloudflare-tunnel.md.
+#
+#   http_port 80
+#     Pins the port Caddy serves the ACME HTTP-01 challenge — and the HTTP->HTTPS
+#     redirect — on. `cloudflared` (running on the Pi, dialling OUT to Cloudflare)
+#     forwards Let's Encrypt's /.well-known/acme-challenge/* requests to
+#     http://localhost:80 through the tunnel, so Caddy proves domain control even
+#     though :80 is closed to the public internet. Caddy ANSWERS the challenge
+#     itself here — it is never proxied to the upstream app, so app-level routing
+#     (e.g. the i18n locale redirects) can't interfere with certificate issuance.
+#
+# Normal site traffic is forwarded by cloudflared to Caddy's HTTPS listener on
+# :443, where Caddy serves the certificate it obtained above — end-to-end TLS
+# (Cloudflare "Full (strict)"). Nothing here is per project: each project's
+# generated `tls {$CADDY_TLS:internal}` block switches to public Let's Encrypt
+# automatically the moment ACME_EMAIL + a real BASE_DOMAIN are set in .env.
+#
+# 80 is already Caddy's default http_port, so this changes NOTHING for the local
+# (internal-CA) setup — it just makes the tunnel contract explicit and stable.
+# ===========================================================================
+{
+	http_port 80
+}
+
+# --- Portainer — visual Docker management UI -------------------------------
+portainer.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy portainer:9000
+}
+
+# --- Uptime Kuma — uptime monitoring / status page -------------------------
+status.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy uptime-kuma:3001
+}
+
+# ===========================================================================
+# Database admin UIs (OPTIONAL, on-demand) — services/db-admin/db-admin.compose.yml
+# ---------------------------------------------------------------------------
+# Each upstream only exists while its Compose profile is up (e.g.
+# `./scripts/db-admin.sh pgadmin up`). If a UI is not running, its subdomain
+# simply returns 502 — Caddy resolves these names at request time, so listing
+# them here while the containers are down does NOT stop Caddy from starting.
+# ===========================================================================
+
+# --- pgAdmin — PostgreSQL admin UI (profile: pgadmin) ----------------------
+pgadmin.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy pgadmin:80
+}
+
+# --- Adminer — lightweight MySQL/PostgreSQL admin UI (profile: adminer) -----
+adminer.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy adminer:8080
+}
+
+# --- Mongo Express — MongoDB admin UI (profile: mongo-express) -------------
+mongo-express.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy mongo-express:8081
+}
+
+# ===========================================================================
+# Authentication — Keycloak identity provider (services/auth/auth.compose.yml)
+# ---------------------------------------------------------------------------
+# Keycloak runs only when the auth stack is up (`./scripts/auth.sh up`); while
+# it is down this subdomain simply returns 502, which never blocks Caddy from
+# starting. Caddy's reverse_proxy sets X-Forwarded-For/Proto/Host by default,
+# and Keycloak is configured (KC_PROXY_HEADERS=xforwarded) to trust them so it
+# builds correct absolute https URLs behind this proxy. Keycloak's internal
+# HTTP port is 8080.
+# ===========================================================================
+
+# --- Keycloak — SSO / OIDC identity provider -------------------------------
+auth.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy keycloak:8080
+}
+
+# ===========================================================================
+# Automation — n8n workflow engine (services/automation/automation.compose.yml)
+# ---------------------------------------------------------------------------
+# n8n runs only when the automation stack is up (`./scripts/automation.sh up`);
+# while it is down this subdomain simply returns 502, which never blocks Caddy
+# from starting. Caddy's reverse_proxy sets X-Forwarded-For/Proto/Host by
+# default, and n8n is configured (N8N_PROTOCOL=https, WEBHOOK_URL, N8N_PROXY_HOPS=1)
+# to trust them so the editor, webhook URLs and the secure session cookie all
+# build/work correctly behind this proxy. n8n's internal HTTP port is 5678.
+# WebSockets (the editor's push channel) are proxied transparently.
+# ===========================================================================
+
+# --- n8n — workflow automation engine --------------------------------------
+automation.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy n8n:5678
+}
+
+# ===========================================================================
+# Dashboard — Homepage unified dashboard (services/dashboard/dashboard.compose.yml)
+# ---------------------------------------------------------------------------
+# The platform's home page: one place that links to (and shows the health of)
+# every other service. It runs only when the dashboard stack is up
+# (`./scripts/dashboard.sh up`); while it is down this subdomain simply returns
+# 502, which never blocks Caddy from starting. Homepage's internal HTTP port is
+# 3000. It validates the Host header (HOMEPAGE_ALLOWED_HOSTS in the compose file
+# is set to home.${BASE_DOMAIN}); Caddy preserves the Host when proxying, so the
+# two line up automatically for both local (home.localhost) and public domains.
+# ===========================================================================
+
+# --- Homepage — unified platform dashboard ---------------------------------
+home.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy homepage:3000
+}
+
+# ===========================================================================
+# Package cache — Verdaccio npm registry UI (services/cache/cache.compose.yml)
+# ---------------------------------------------------------------------------
+# OPTIONAL local npm cache. Verdaccio runs only when the cache stack is up
+# (`./scripts/cache.sh up`, profile: cache); while it is down this subdomain
+# simply returns 502, which never blocks Caddy from starting. ONLY the Verdaccio
+# web UI is fronted here — the npm endpoint itself is reached over the `internal`
+# network as verdaccio:4873, and the NuGet cache (nuget-cache:8080) is internal
+# only with no UI. Verdaccio's internal HTTP port is 4873.
+# ===========================================================================
+
+# --- Verdaccio — local npm registry / cache UI -----------------------------
+cache.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy verdaccio:4873
+}
+
+# ===========================================================================
+# Web analytics — Umami dashboard (services/analytics/analytics.compose.yml)
+# ---------------------------------------------------------------------------
+# Self-hosted, privacy-first web analytics. Umami runs only when the analytics
+# stack is up (`./scripts/analytics.sh up`, profile: analytics); while it is down
+# this subdomain simply returns 502, which never blocks Caddy from starting. Both
+# the dashboard AND the tracker script your sites load (/script.js) are served by
+# the same upstream, so the env-driven snippet in the web-analytics module points
+# at https://analytics.<BASE_DOMAIN>/script.js. Umami's internal HTTP port is 3000.
+# ===========================================================================
+
+# --- Umami — privacy-first analytics dashboard + tracker -------------------
+analytics.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy umami:3000
+}
+
+# ===========================================================================
+# Control API — secure backend for the web control panel (services/control-api)
+# ---------------------------------------------------------------------------
+# The API-only backend the future control panel calls. It runs only when the
+# control-api stack is up (`./scripts/control-api.sh up`); while it is down this
+# subdomain simply returns 502, which never blocks Caddy from starting. Every
+# endpoint except GET /api/health requires a valid Keycloak JWT (verified by the
+# API against auth.${BASE_DOMAIN}); writes/actions need the operator role. The API
+# publishes NO host ports and is reachable ONLY through this proxy. Its internal
+# HTTP port is 3000.
+# ===========================================================================
+
+# --- control-api — control-panel backend (API only) -----------------------
+api.{$BASE_DOMAIN:localhost} {
+	tls {$CADDY_TLS:internal}
+	encode zstd gzip
+	reverse_proxy control-api:3000
+}

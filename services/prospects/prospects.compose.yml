@@ -1,0 +1,111 @@
+# ===========================================================================
+# pi-system — CLIENT PROSPECT ORGANIZER  [OPTIONAL, profile-gated, on-demand]
+# ---------------------------------------------------------------------------
+# A self-hosted, operator-owned CRM-lite for a MANUAL client-acquisition workflow.
+# The operator FINDS prospects themselves and ENTERS them; this tool ORGANIZES the
+# pipeline (status, notes, follow-up reminders) and ANALYZES a prospect's OWN PUBLIC
+# website by REUSING the services/seo engine. The operator then contacts prospects
+# MANUALLY through their own channels. Growth layer #4.
+#
+# ETHICAL/LEGAL BOUNDARY (architectural, NOT a toggle):
+#   * NO scraping of Google Maps / LinkedIn / any ToS-protected platform — there is
+#     no such integration in the image, not even an optional stub.
+#   * NO automated or bulk outreach, NO auto-send — the image carries no outreach
+#     transport at all. Draft templates are produced for the operator to copy and
+#     send THEMSELVES; follow-up reminders go to the OPERATOR, never to the prospect.
+#   * Public-site analysis only — it fetches exactly the one public URL the operator
+#     typed in (the prospect's own site, like any visitor). See the full boundary in
+#     services/prospects/README.md.
+#
+# DESIGN — honest about the Pi, consistent with the SEO auditor it reuses:
+#   * Not always-on. It sits behind the Compose PROFILE "prospects" and is launched
+#     as a ONE-SHOT container (restart: "no") by scripts/prospects.sh via
+#     `docker compose run --rm`, then exits. ZERO RAM when idle.
+#   * Pipeline data is a single small JSON document under data/prospects/ (git-
+#     ignored) — file-backed, server-less, no always-on database (the same Pi-aware
+#     reasoning the SEO store, quality gate and backup/health-monitor use).
+#   * Outbound network is used ONLY to fetch a prospect's own public site for the
+#     analysis, over the `internal` network (which permits egress — it is not
+#     `internal: true`). The service attaches to `internal` ONLY, publishes NO host
+#     ports, and is never on `proxy` (there is no inbound dashboard).
+#
+# Run a one-shot command (normally via the helper, shown raw here):
+#   docker compose --env-file .env --project-directory . \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/prospects/prospects.compose.yml \
+#     --profile prospects run --rm prospects add --name "Acme Dental" --url https://acme.example
+# Or simply:   ./scripts/prospects.sh add --name "Acme Dental" --url https://acme.example
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — Pi 5. Built from node:22-alpine (arm64).
+#   * Pinned version (in the Dockerfile + image tag). NEVER "latest".
+#   * No secrets in this file — config + the OPTIONAL AI key come from the root .env.
+#   * internal-only; NO host ports.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # prospects — the operator-owned CRM-lite + public-site analyzer (reuses SEO).
+  # One-shot: it runs one subcommand against data/prospects, optionally fetching a
+  # single public site for the analysis, then exits.
+  # -------------------------------------------------------------------------
+  prospects:
+    build:
+      # Context is ./services so the image can copy BOTH engine trees (seo + prospects)
+      # and the reuse import `../../seo/engine` resolves — see services/prospects/Dockerfile.
+      context: ./services
+      dockerfile: prospects/Dockerfile
+    image: ${COMPOSE_PROJECT_NAME:-pi-system}/prospects:1.0.0   # locally built, pinned
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_prospects
+    profiles: ["prospects"]           # never auto-starts; run on demand only
+    restart: "no"                     # one-shot job — must NOT restart-loop
+    networks:
+      - internal                      # outbound egress to a prospect's OWN public site only
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # Pipeline + reports store inside the container (mapped to host data/prospects below).
+      PROSPECTS_DATA_DIR: /data
+      # OPTIONAL AI enrichment of the analysis — the SAME inert-until-keyed seam the
+      # SEO engine uses; INERT unless BOTH are set (your own key; usage-billed).
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      # OPTIONAL operator alerts to the OPERATOR'S own channel (never a prospect):
+      # the same seam carries both the follow-up reminder AND the rich post-analysis
+      # heads-up. PROSPECTS_REPORT_LOCALE picks that alert's language (ar default | en).
+      PROSPECTS_UPTIME_KUMA_PUSH_URL: ${PROSPECTS_UPTIME_KUMA_PUSH_URL:-}
+      PROSPECTS_NOTIFY_CMD: ${PROSPECTS_NOTIFY_CMD:-}
+      PROSPECTS_REPORT_LOCALE: ${PROSPECTS_REPORT_LOCALE:-}
+      # The FULL automated flow (`analyze <id> --notify`): how many days out the
+      # follow-up reminder is scheduled (default 3). The OPTIONAL PDF export reuses the
+      # SEO engine's renderer seam — off unless SEO_PDF_RENDERER names one (degrades to
+      # the print-ready HTML + Markdown otherwise). PROSPECTS_REPORT_PDF=1 turns the PDF
+      # export on by default without passing --pdf each run.
+      PROSPECTS_FOLLOWUP_DAYS: ${PROSPECTS_FOLLOWUP_DAYS:-}
+      PROSPECTS_REPORT_PDF: ${PROSPECTS_REPORT_PDF:-}
+      SEO_PDF_RENDERER: ${SEO_PDF_RENDERER:-}
+    volumes:
+      # Pipeline document, saved reports and the last reminder land here (git-ignored ./data).
+      - ${PROSPECTS_DATA_DIR:-./data/prospects}:/data
+    deploy:
+      resources:
+        limits:
+          # The organizer is light (Node + at most one fetch); 256M is comfortable.
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Shared network. Declared so this file merges cleanly with the base compose file
+# (which supplies the subnet/IPAM). The name MUST match the base file — do NOT
+# invent a new network. The job only ever touches `internal` (for outbound egress
+# to a prospect's own public site); it is never placed on `proxy` and publishes no
+# host port.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge

@@ -1,0 +1,22 @@
+---
+# ===========================================================================
+# Homepage — Docker integration (services/dashboard/config/docker.yaml)
+# ---------------------------------------------------------------------------
+# DISABLED BY DEFAULT. dashboard.compose.yml deliberately does NOT mount the
+# Docker socket — handing a UI access to /var/run/docker.sock is a privileged
+# grant we avoid on a Pi. Service health here is done with plain HTTP probes
+# (siteMonitor in services.yaml) instead.
+#
+# To OPT IN to live container widgets (status, CPU/RAM per container):
+#   1. In services/dashboard/dashboard.compose.yml, add to the homepage service:
+#          volumes:
+#            - /var/run/docker.sock:/var/run/docker.sock:ro
+#   2. Uncomment the connection below.
+#   3. In services.yaml, add `server: my-docker` and `container: <name>` (plus
+#      an optional `widget: { type: docker }`) to a service entry.
+#
+# Docs: https://gethomepage.dev/configs/docker/
+# ===========================================================================
+
+# my-docker:
+#   socket: /var/run/docker.sock

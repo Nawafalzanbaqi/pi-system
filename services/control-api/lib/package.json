@@ -1,0 +1,4 @@
+{
+  "//": "Marks services/control-api/lib as an ESM package so these pure-logic modules are importable BOTH by the Next.js route handlers AND by raw `node` in tests/control-api (no bundler, no network). Mirrors the services/seo/engine convention.",
+  "type": "module"
+}

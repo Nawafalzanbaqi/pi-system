@@ -1,0 +1,34 @@
+# ===========================================================================
+# pi-system module: local-payments (nextjs-app) — payment env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: local-payments).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh. Adds NO new
+# container and NO host ports. A plain nextjs-app has NO .NET backend, so the payment
+# LIFECYCLE (intents, status, webhook, idempotent recording) lives in a SEPARATE
+# .NET payments service you run elsewhere (e.g. a dotnet-api project that also
+# composes local-payments). Point PAYMENTS_API_URL at it; the shipped UI + Route
+# Handlers proxy to it. With it unset the checkout degrades gracefully (a clear 503),
+# never a broken reference. See this module's README, "nextjs-app integration".
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__:
+    environment:
+      # URL of the .NET payments backend that owns the lifecycle (integration point).
+      PAYMENTS_API_URL: ${PAYMENTS_API_URL:-}
+
+# ---------------------------------------------------------------------------
+# Shared networks — declared so this fragment merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). Names MUST match the base file. The service
+# block lists no `networks:` key, so the base service keeps its own (internal +
+# proxy); these are only here for IPAM consistency on merge.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

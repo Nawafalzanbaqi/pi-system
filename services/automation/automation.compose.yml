@@ -1,0 +1,211 @@
+# ===========================================================================
+# pi-system — automation layer (n8n workflow engine)
+# ---------------------------------------------------------------------------
+# Brings up n8n, the platform's central automation engine, so workflows can
+# react to schedules / webhooks and orchestrate the other services. This phase
+# ships n8n itself (plus its OWN database) and ONE internal-operations workflow
+# (platform health monitoring + alerting, exported under automation/workflows/).
+# Client-acquisition / scraping / cold-outreach workflows are deliberately
+# DEFERRED pending legal/ToS review — see docs/README.md.
+#
+# Two services, brought up together as one unit (no Compose profiles here):
+#
+#   n8n-db  -> a DEDICATED PostgreSQL, isolated from the shared databases in
+#              services/databases AND from keycloak-db. Internal-only, no host
+#              ports, its own named volume. n8n keeps its workflow/execution
+#              data in its own private store, never mixed with app or identity
+#              data. Reached by n8n as `n8n-db:5432`.
+#   n8n     -> the n8n server itself (Node.js). On BOTH networks: `internal` to
+#              reach n8n-db AND the platform services it monitors, and `proxy`
+#              so Caddy fronts it. Publishes NO host ports — reached only via
+#              Caddy at automation.${BASE_DOMAIN}.
+#
+# ALWAYS run together with the base compose file so the shared `internal` /
+# `proxy` networks (and their subnet/IPAM) are inherited:
+#
+#   docker compose --env-file .env \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/automation/automation.compose.yml \
+#     up -d
+#
+# Or simply use the helper:   ./scripts/automation.sh up
+#
+# RESOURCE NOTE: n8n is a moderately heavy Node.js service. Its 512M limit is
+# a baseline sized for light, internal workflows like the bundled health check;
+# raise it if you run heavier automations or enable external task runners. With
+# the 256M for n8n-db the whole stack costs ~768M — lighter than Keycloak but
+# still meaningful on a Pi, so bring it up on demand. See docs/README.md.
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5. Both tags below
+#     are verified multi-arch incl. linux/arm64 (the Pi 5's Cortex-A76).
+#   * Every image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file — values come from the root .env only. Losing
+#     N8N_ENCRYPTION_KEY makes every stored n8n credential unrecoverable, so it
+#     is supplied from .env and is flagged critical by scripts/check-secrets.sh.
+#   * n8n-db is internal-only with no host ports; n8n exposes no host ports
+#     either and is reachable only through Caddy on the `proxy` network.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # n8n-db — n8n's OWN, dedicated PostgreSQL.
+  # Deliberately separate from the shared engines in services/databases (and
+  # from keycloak-db): n8n's workflow/execution store has its own lifecycle and
+  # blast radius, so it gets its own container and its own n8n_db_data volume.
+  # Internal-only, reached by n8n as `n8n-db:5432`. The three N8N_DB_* values
+  # from .env configure both this image (as POSTGRES_*) and n8n's connection
+  # settings below.
+  # -------------------------------------------------------------------------
+  n8n-db:
+    image: postgres:16.6-alpine                    # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_n8n-db
+    restart: unless-stopped
+    networks:
+      - internal           # internal-only; reached as `n8n-db:5432`
+    security_opt:
+      - no-new-privileges:true
+    # Credentials strictly from .env (the image REQUIRES POSTGRES_PASSWORD).
+    environment:
+      POSTGRES_USER: ${N8N_DB_USERNAME}
+      POSTGRES_PASSWORD: ${N8N_DB_PASSWORD}
+      POSTGRES_DB: ${N8N_DB_NAME}
+    volumes:
+      - n8n_db_data:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes Compose interpolation so the literal $VAR reaches the shell
+      # INSIDE the container, where POSTGRES_USER / POSTGRES_DB are defined.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # n8n — the automation engine, configured for a reverse-proxy ("edge")
+  # deployment behind Caddy so the editor, the webhook URLs it registers, and
+  # its session cookie all work correctly even though TLS is terminated at
+  # Caddy. Reached by Caddy as `n8n:5678` (n8n's default internal HTTP port).
+  #
+  # Reverse-proxy / hostname settings (all driven from .env):
+  #   * N8N_HOST — the external hostname n8n believes it is served at. Blank in
+  #     .env => defaults to automation.localhost for local use; set it to the
+  #     real public host (e.g. automation.example.com) in production.
+  #   * N8N_PROTOCOL=https + WEBHOOK_URL / N8N_EDITOR_BASE_URL — n8n builds
+  #     absolute https URLs (for webhooks and editor links) from these, NOT from
+  #     the internal http hop, so production webhook URLs are correct behind the
+  #     proxy. Caddy terminates TLS; the n8n<->Caddy hop is plain http on 5678.
+  #   * N8N_PROXY_HOPS=1 — exactly one reverse proxy (Caddy) sits in front, so
+  #     n8n trusts a single set of X-Forwarded-* headers (correct client IP,
+  #     proto) without trusting spoofed ones.
+  #   * N8N_SECURE_COOKIE=true — the session cookie is marked Secure; the
+  #     browser only sends it over https (which Caddy serves, even locally via
+  #     its internal CA at https://automation.localhost). If you ever access n8n
+  #     over plain http during local testing, set this to false in .env.
+  #
+  # AUTH: n8n's own built-in user management guards the editor — on first boot
+  # you create an owner account (email + password) at automation.${BASE_DOMAIN};
+  # there is no anonymous access. (n8n removed env-based basic auth in v1+.) You
+  # can additionally layer Caddy basic_auth or Keycloak in front later; see
+  # docs/README.md. No host ports are published, so n8n is only ever reachable
+  # through Caddy regardless.
+  # -------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:2.21.7                         # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_n8n
+    restart: unless-stopped
+    depends_on:
+      n8n-db:
+        condition: service_healthy                 # wait for the DB to be ready
+    networks:
+      - internal           # reach n8n-db AND the platform services it monitors
+      - proxy              # fronted by Caddy at automation.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # --- Database connection (the dedicated n8n-db above) ----------------
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n-db
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME}
+      DB_POSTGRESDB_USER: ${N8N_DB_USERNAME}
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD}
+      # --- Credential encryption (CRITICAL) --------------------------------
+      # n8n encrypts every stored credential with this key. It MUST stay stable
+      # and secret: lose it and all saved credentials become unrecoverable;
+      # leak it and they can be decrypted. Supplied from .env only; never here.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # --- Reverse-proxy / hostname (see block comment above) --------------
+      N8N_HOST: ${N8N_HOST:-automation.localhost}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: ${N8N_WEBHOOK_URL:-https://automation.localhost/}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-https://automation.localhost/}
+      N8N_PROXY_HOPS: "1"
+      N8N_SECURE_COOKIE: "true"
+      # --- Scheduling / timezone -------------------------------------------
+      # GENERIC_TIMEZONE drives Schedule/Cron nodes; TZ sets the OS clock so
+      # logs and timestamps line up. Both follow the platform-wide TZ from .env.
+      GENERIC_TIMEZONE: ${TZ:-UTC}
+      TZ: ${TZ:-UTC}
+      # --- Memory / V8 heap ceiling ----------------------------------------
+      # Cap V8's old-space heap at 384M, BELOW the 512M cgroup cap (deploy
+      # limits.memory) so Node self-throttles (and GCs harder) instead of
+      # growing until the kernel OOM-kills the container. The ~128M gap leaves
+      # room for non-heap usage (V8 internals, native buffers). The cgroup cap
+      # is unchanged — we only align the runtime's internal ceiling to it. If
+      # you raise the memory limit for heavier automations, raise this too
+      # (keep it a few hundred MB under the new cap).
+      NODE_OPTIONS: "--max-old-space-size=384"
+      # --- Privacy / noise --------------------------------------------------
+      # Self-hosted, so opt out of anonymous telemetry and the hiring banner.
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_HIRING_BANNER_ENABLED: "false"
+      # --- Telegram management bot (OPTIONAL) ------------------------------
+      # Exposed to workflows as $env.* so telegram-management-bot.json (and the
+      # optional Telegram notifier in platform-health-alert.json) can enforce the
+      # allowlist and locate the host bridge. These are NOT secrets: the bot
+      # TOKEN lives in an n8n Telegram CREDENTIAL, never here. Blank by default.
+      TELEGRAM_ALLOWED_IDS: ${TELEGRAM_ALLOWED_IDS:-}
+      PI_BOT_EXEC: ${PI_BOT_EXEC:-/opt/pi-system/scripts/bot-exec.sh}
+    volumes:
+      # n8n's own data dir (settings, the local encryption-key cache, binary
+      # data). Workflow/execution data lives in n8n-db; this persists the rest.
+      - n8n_data:/home/node/.n8n
+    deploy:
+      resources:
+        limits:
+          # n8n is moderately heavy (Node.js). 512M is a baseline for light
+          # internal workflows like the bundled health check; raise it for
+          # heavier automations or external task runners. See docs/README.md.
+          memory: 512M
+
+# ---------------------------------------------------------------------------
+# Named volumes (project-name prefixed, e.g. "pi-system_n8n_db_data").
+# `./scripts/automation.sh down` removes only the containers — these volumes,
+# and thus all workflow/credential data, survive.
+# ---------------------------------------------------------------------------
+volumes:
+  n8n_db_data:
+  n8n_data:
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The names MUST match the base file —
+# do NOT invent new networks. n8n-db sits on `internal` only; n8n sits on BOTH
+# `internal` (to reach its DB and the services it monitors) and `proxy` (so
+# Caddy fronts it).
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

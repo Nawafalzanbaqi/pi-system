@@ -1,0 +1,6 @@
+{
+  "//": "Fixture: a Docker daemon.json with the default json-file driver but NO",
+  "//1": "log-opts (no max-size/max-file). pf_daemon_log_opt must return '' for the",
+  "//2": "caps here, so the log-rotation check WARNs (logs unbounded).",
+  "log-driver": "json-file"
+}

@@ -1,0 +1,185 @@
+{
+  "name": "Platform Health Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-4a01-8a01-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Platform health check ────────────────────────────────────────────────\n// Edit TARGETS to match the services you want watched. n8n runs on the\n// `internal` + `proxy` Docker networks, so it reaches platform containers by\n// their service NAME (no host ports needed). On-demand services that are\n// intentionally stopped will report DOWN here — that is expected.\nconst TARGETS = [\n  { name: 'Uptime Kuma', url: 'http://uptime-kuma:3001' },\n  { name: 'Portainer',   url: 'http://portainer:9000' },\n  // Examples — add your own (only checks pass while the service is running):\n  // { name: 'Keycloak', url: 'http://keycloak:8080' },\n  // { name: 'My app',   url: 'http://<service-name>:<port>/health' },\n];\n\nconst TIMEOUT_MS = 10000;\nconst results = [];\n\nfor (const t of TARGETS) {\n  const started = Date.now();\n  try {\n    const res = await this.helpers.httpRequest({\n      method: 'GET',\n      url: t.url,\n      timeout: TIMEOUT_MS,\n      returnFullResponse: true,\n      ignoreHttpStatusErrors: true,\n    });\n    const code = res.statusCode;\n    const ok = code >= 200 && code < 400;\n    results.push({\n      name: t.name, url: t.url, healthy: ok, statusCode: code,\n      ms: Date.now() - started, error: ok ? null : ('HTTP ' + code),\n    });\n  } catch (err) {\n    results.push({\n      name: t.name, url: t.url, healthy: false, statusCode: null,\n      ms: Date.now() - started,\n      error: (err && err.message) ? err.message : String(err),\n    });\n  }\n}\n\nconst failures = results.filter(r => !r.healthy);\nconst summary = {\n  checkedAt: new Date().toISOString(),\n  total: results.length,\n  healthy: results.length - failures.length,\n  unhealthy: failures.length,\n  hasFailures: failures.length > 0,\n  results,\n  failures,\n};\n\n// Always log the outcome so a plain `docker logs` / the n8n execution log is\n// the zero-config 'alert' channel even before you wire a real notifier.\nif (summary.hasFailures) {\n  console.error('[platform-health] DOWN: ' + JSON.stringify(failures));\n} else {\n  console.log('[platform-health] all ' + summary.total + ' services healthy');\n}\n\nreturn [{ json: summary }];"
+      },
+      "id": "a1b2c3d4-0002-4a02-8a02-000000000002",
+      "name": "Check platform services",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c0000000-0000-4000-8000-000000000abc",
+              "leftValue": "={{ $json.hasFailures }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4a03-8a03-000000000003",
+      "name": "Any service down?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        120,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0004-4a04-8a04-000000000004",
+      "name": "Send alert (configure me)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        380,
+        -100
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0005-4a05-8a05-000000000005",
+      "name": "All healthy",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        380,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ ($env.TELEGRAM_ALLOWED_IDS || '').split(/[\\s,;]+/).filter(Boolean)[0] }}",
+        "text": "={{ '🚨 pi-system health alert — ' + $json.unhealthy + ' of ' + $json.total + ' service(s) DOWN at ' + $json.checkedAt + ':\\n' + ($json.failures || []).map(f => '• ' + f.name + ' (' + (f.error || 'down') + ')').join('\\n') }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a1b2c3d4-0007-4a07-8a07-000000000007",
+      "name": "Notify Telegram (optional — enable me)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        380,
+        -300
+      ],
+      "disabled": true,
+      "notes": "Disabled by default. Enable + attach your Telegram credential to share the bot channel."
+    },
+    {
+      "parameters": {
+        "content": "## Platform health monitor + alert\n\n**What it does:** every 5 minutes the *Check platform services* node makes an\ninternal HTTP request to each platform service (by Docker service name) and\ndecides healthy/unhealthy. If any are down, the **true** branch fires the\nalert step.\n\n### Make it actually notify you\nThe default *Send alert (configure me)* node is a safe **no-op** — the only\nout-of-the-box signal is the line the Code node logs (visible in the execution\nlog and `./scripts/automation.sh logs`). To get real alerts, REPLACE that node\nwith one of:\n\n- **Telegram** → add a *Telegram* node + Telegram API credential (bot token).\n- **Email** → add a *Send Email* node + SMTP credential.\n- **Generic webhook** (Slack/Discord/etc.) → add an *HTTP Request* node POSTing\n  to a URL you keep in an env var, e.g. `={{ $env.ALERT_WEBHOOK_URL }}`.\n\nStore every token/URL as an n8n **credential** or **environment variable** —\nnever hard-code secrets into the workflow (this file is committed to git).\n\n### Tune it\n- Change services in the `TARGETS` array of the Code node.\n- Change the cadence in the *Schedule Trigger* node.\n- A useful alert body: `={{ $json.failures }}` (the list of down services).\n\n### Share the Telegram management bot's channel\nThis workflow ships a **disabled** *Notify Telegram (optional — enable me)* node\nalready wired to the **true** branch. To make health alerts land in the SAME\nchat you control the platform from (see `telegram-management-bot.json`):\n1. **Enable** the node (right-click → Enable) and select your **Telegram API**\n   credential (the BotFather token).\n2. It targets the first id in `TELEGRAM_ALLOWED_IDS` (`$env`) and never embeds a\n   secret — alerts + control then share one channel.",
+        "height": 670,
+        "width": 460,
+        "color": 4
+      },
+      "id": "a1b2c3d4-0006-4a06-8a06-000000000006",
+      "name": "How to use / swap the notifier",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        -360
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check platform services",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check platform services": {
+      "main": [
+        [
+          {
+            "node": "Any service down?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any service down?": {
+      "main": [
+        [
+          {
+            "node": "Send alert (configure me)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notify Telegram (optional — enable me)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "All healthy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

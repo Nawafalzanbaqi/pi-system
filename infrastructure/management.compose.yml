@@ -1,0 +1,148 @@
+# ===========================================================================
+# pi-system — management & monitoring stack
+# ---------------------------------------------------------------------------
+# Adds the operations layer on top of the base networks:
+#   * Portainer CE  — visual Docker management UI                  (proxy)
+#   * Uptime Kuma   — uptime / status monitoring        (internal + proxy)
+#   * Watchtower    — update CHECKER, NOTIFY-ONLY (no auto-update)  (internal)
+#
+# This file is ALWAYS run TOGETHER with the base compose file so the shared
+# `internal` / `proxy` networks (and their subnets) are inherited from it:
+#
+#   docker compose --env-file .env \
+#     -f infrastructure/docker-compose.yml \
+#     -f infrastructure/management.compose.yml \
+#     up -d
+#
+# Or simply:  ./scripts/start-management.sh
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5.
+#   * Every image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file — values come from the root .env only.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # Portainer CE — lightweight visual management for the local Docker engine.
+  # Lives on the `proxy` network so the reverse proxy (services/proxy) routes
+  # to it on container port 9000. No host port is published — Caddy is now the
+  # single public entry point, reachable at portainer.${BASE_DOMAIN}.
+  # -------------------------------------------------------------------------
+  portainer:
+    image: portainer/portainer-ce:2.21.4-alpine   # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_portainer
+    restart: unless-stopped
+    # Portainer manages Docker through the engine socket. This is a privileged
+    # grant by design (it IS the management tool) — which is exactly why it is
+    # kept on the proxy network only, to be fronted by the reverse proxy + auth.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - proxy
+    security_opt:
+      - no-new-privileges:true
+    # ---- Bootstrap access (OPTIONAL, normally OFF) --------------------------
+    # The reverse proxy now fronts this UI, so these host ports stay commented.
+    # Uncomment ONLY for emergency direct access (e.g. the proxy is down), then
+    # re-comment: http://<pi-ip>:<PORTAINER_HTTP_PORT>.
+    # ports:
+    #   - "${PORTAINER_HTTP_PORT:-9000}:9000"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # Uptime Kuma — self-hosted uptime monitoring / status page.
+  # On `internal` so it can probe other services directly, and on `proxy` so
+  # the reverse proxy publishes its dashboard/status page at status.${BASE_DOMAIN}.
+  # UI listens on container port 3001.
+  # -------------------------------------------------------------------------
+  uptime-kuma:
+    image: louislam/uptime-kuma:1.23.16           # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - uptimekuma_data:/app/data
+    networks:
+      - internal     # probe internal services (apps, DBs, ...) directly
+      - proxy        # let the reverse proxy expose the status page
+    security_opt:
+      - no-new-privileges:true
+    # ---- Bootstrap access (OPTIONAL, normally OFF) — UI on 3001 -------------
+    # Fronted by the reverse proxy; leave commented. Uncomment only for
+    # emergency direct access (e.g. the proxy is down), then re-comment.
+    # ports:
+    #   - "${UPTIME_KUMA_PORT:-3001}:3001"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # Watchtower — NOTIFY-ONLY update checker.
+  # It inspects running containers, checks registries for newer image
+  # versions on a weekly schedule, and REPORTS what it finds. It does NOT
+  # pull, recreate, restart or otherwise touch any container — upgrades stay
+  # a deliberate, manual action. On `internal` only: it needs outbound access
+  # to registries + the notifier, but never faces the public edge.
+  # -------------------------------------------------------------------------
+  watchtower:
+    image: containrrr/watchtower:1.7.1            # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_watchtower
+    restart: unless-stopped
+    # Read-only socket: monitor-only just needs to INSPECT containers/images.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - internal     # outbound only: reach registries + send notifications
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # --- NOTIFY-ONLY: the entire reason this service exists ---------------
+      # Check for newer images and REPORT them, but never pull/recreate.
+      WATCHTOWER_MONITOR_ONLY: "true"
+      # Defence-in-depth: even if monitor-only were ever toggled off, never
+      # restart running containers automatically.
+      WATCHTOWER_NO_RESTART: "true"
+      # Never delete old images (nothing is being replaced anyway).
+      WATCHTOWER_CLEANUP: "false"
+      # --- Weekly check (6-field cron: sec min hour day-of-month mon dow) ---
+      # Default: Sundays at 04:00 in TZ above. A schedule cannot be combined
+      # with a polling interval, so only this is set.
+      WATCHTOWER_SCHEDULE: "${WATCHTOWER_SCHEDULE:-0 0 4 * * 0}"
+      # --- Notifications (shoutrrr URL; leave BLANK to disable) -------------
+      # Blank => Watchtower still logs its findings, just sends nothing.
+      WATCHTOWER_NOTIFICATION_URL: ${WATCHTOWER_NOTIFICATION_URL:-}
+      # Send a single consolidated report per run rather than per-container.
+      WATCHTOWER_NOTIFICATION_REPORT: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+# ---------------------------------------------------------------------------
+# Named volumes for persistent state. Compose prefixes them with the project
+# name, e.g. "pi-system_portainer_data".
+# ---------------------------------------------------------------------------
+volumes:
+  portainer_data:
+  uptimekuma_data:
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared here so this file is self-consistent and merges
+# cleanly with the base compose file (which supplies their subnets/IPAM).
+# The names must match the base file exactly — do NOT invent new networks.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

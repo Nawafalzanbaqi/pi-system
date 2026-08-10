@@ -1,0 +1,35 @@
+# ===========================================================================
+# pi-system module: seo-toolkit (fullstack) — SEO env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: seo-toolkit).
+# ---------------------------------------------------------------------------
+# Same as the nextjs-app fragment, but the web-facing service on a fullstack base is
+# named __PROJECT_NAME__-web. Loaded ALONGSIDE the project's main fragment by
+# scripts/project.sh. Adds NO new container and NO host ports — it only MERGES the
+# SEO env into the existing Next.js (frontend) service so app/sitemap.js,
+# app/robots.js, the buildMetadata helper and the StructuredData component read them
+# at request time. (Compose unions service `environment` maps across files.)
+#
+# Set SEO_SITE_URL in .env for absolute canonical/OG URLs + sitemap (read first from
+# the per-project override __ENVPREFIX__SEO_SITE_URL, then a shared SEO_SITE_URL).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__-web:
+    environment:
+      SEO_SITE_URL: ${__ENVPREFIX__SEO_SITE_URL:-${SEO_SITE_URL:-}}
+      SEO_SITE_NAME: ${__ENVPREFIX__SEO_SITE_NAME:-${SEO_SITE_NAME:-}}
+      SEO_LOCALES: ${__ENVPREFIX__SEO_LOCALES:-${SEO_LOCALES:-}}
+
+# ---------------------------------------------------------------------------
+# Shared networks — declared so this fragment merges cleanly with the base compose
+# file. Names MUST match the base file; the service keeps its own networks.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

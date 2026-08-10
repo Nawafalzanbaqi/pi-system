@@ -1,0 +1,94 @@
+# ===========================================================================
+# pi-system — reverse proxy (Caddy)
+# ---------------------------------------------------------------------------
+# The single public entry point for the platform. Caddy terminates TLS and
+# reverse-proxies subdomains of ${BASE_DOMAIN} to the internal service ports,
+# so individual services no longer publish host ports of their own:
+#
+#   portainer.${BASE_DOMAIN}  ->  portainer:9000      (management UI)
+#   status.${BASE_DOMAIN}     ->  uptime-kuma:3001    (status page)
+#
+# Caddy is the only thing that binds host ports (80 + 443). It reaches the
+# upstreams by their Docker service names over the shared `proxy` network.
+#
+# ALWAYS run together with the base + management compose files so the shared
+# `proxy` network exists and the upstreams are up. Use the helper script,
+# which also sets --project-directory to the project root so the relative
+# Caddyfile bind-mount below resolves correctly:
+#
+#   ./scripts/start-proxy.sh
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5.
+#   * Every image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file — values come from the root .env only.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # Caddy — automatic-HTTPS reverse proxy.
+  # Chosen for its zero-config TLS: it provisions and renews certificates on
+  # its own — public Let's Encrypt certs when ACME_EMAIL + a real BASE_DOMAIN
+  # are set, otherwise locally-trusted certs from its built-in internal CA so
+  # the stack works with no public domain at all.
+  # -------------------------------------------------------------------------
+  caddy:
+    image: caddy:2.8.4-alpine                       # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_caddy
+    restart: unless-stopped
+    # The ONLY host ports in the whole platform. 80 is needed for the HTTP->
+    # HTTPS redirect and ACME HTTP challenge; 443 serves TLS (tcp) and HTTP/3
+    # (udp). Everything else stays internal to the Docker networks.
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"      # HTTP/3 (QUIC) — same port 443, over UDP
+    networks:
+      - proxy              # reach portainer:9000 / uptime-kuma:3001 by name
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # Subdomains hang off this. Collapse an unset/blank value to "localhost"
+      # so the Caddyfile site addresses are always well-formed.
+      BASE_DOMAIN: ${BASE_DOMAIN:-localhost}
+      # TLS mode for every site. Collapse an unset/blank ACME e-mail to the
+      # literal "internal" (Caddy's local CA); a real e-mail switches the
+      # sites to public Let's Encrypt. Done here (not in the Caddyfile) because
+      # Compose's :- treats "empty" as "unset", whereas Caddy's :default only
+      # applies when the variable is entirely absent.
+      CADDY_TLS: ${ACME_EMAIL:-internal}
+    volumes:
+      # Caddyfile (read-only). Path is relative to the project root — the
+      # start-proxy.sh helper pins --project-directory there so it resolves.
+      - ./services/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persist certificates, ACME account keys + OCSP staples. CRITICAL: keeps
+      # certs across restarts and avoids hitting Let's Encrypt rate limits.
+      - caddy_data:/data
+      # Persist Caddy's autosaved JSON config.
+      - caddy_config:/config
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+# ---------------------------------------------------------------------------
+# Named volumes for Caddy's persistent state (project-name prefixed, e.g.
+# "pi-system_caddy_data").
+# ---------------------------------------------------------------------------
+volumes:
+  caddy_data:
+  caddy_config:
+
+# ---------------------------------------------------------------------------
+# Shared network. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The name MUST match the base file —
+# do NOT invent a new network. Caddy only needs `proxy`; it never touches the
+# trusted `internal` network.
+# ---------------------------------------------------------------------------
+networks:
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

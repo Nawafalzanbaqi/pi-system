@@ -1,0 +1,13 @@
+# Keep the build context small and reproducible.
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+README.md
+**/node_modules/

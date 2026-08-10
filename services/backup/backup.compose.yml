@@ -1,0 +1,98 @@
+# ===========================================================================
+# pi-system — encrypted backup job
+# ---------------------------------------------------------------------------
+# Defines the one-shot `backup` container that performs an ENCRYPTED backup of
+# every database that is currently running, the isolated Keycloak DB, any extra
+# project databases you list, and the platform's critical config. It connects to
+# each database BY SERVICE NAME on the shared `internal` network using the
+# credentials already in the root .env — exactly like the apps do — and never
+# opens a host port.
+#
+# It is NOT a long-running service. It sits behind the Compose profile "backup"
+# so nothing here ever auto-starts; it is meant to be launched on demand:
+#
+#   docker compose --env-file .env \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/backup/backup.compose.yml \
+#     --profile backup run --rm backup
+#
+# Or simply use the helper:   ./scripts/backup.sh now
+# Schedule it (daily) + the weekly restore drill with: ./scripts/backup-install-cron.sh
+#
+# ENCRYPTION: every artifact is encrypted at rest with `age`. The age identity
+# (private key) is mounted READ-ONLY from ./secrets/backup/ (git-ignored) and is
+# used only to derive the public recipient when BACKUP_AGE_RECIPIENTS is unset.
+# If neither a key nor recipients are configured, the job ABORTS rather than
+# writing any plaintext dump. Generate the key once with: ./scripts/backup.sh init-key
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) image only — built from pinned, arm64 tools (Pi 5).
+#   * Every tool pinned to an explicit version. NEVER "latest".
+#   * No secrets in this file — credentials come from the root .env only.
+#   * The job attaches to `internal` ONLY (never `proxy`) and publishes no ports.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # backup — the one-shot, profile-gated backup job. Built locally from
+  # services/backup/Dockerfile (the toolbox image with every dump tool + age).
+  # Reached databases: postgres:5432, mysql:3306, mongo:27017, redis:6379,
+  # keycloak-db:5432, plus any extra targets in BACKUP_EXTRA_TARGETS.
+  # -------------------------------------------------------------------------
+  backup:
+    build:
+      context: ./services/backup
+      dockerfile: Dockerfile
+    image: ${COMPOSE_PROJECT_NAME:-pi-system}/backup:1.0.0   # locally built, pinned tag
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_backup
+    profiles: ["backup"]                 # never auto-starts; run on demand only
+    networks:
+      - internal          # internal-only; reaches every DB by service name
+    security_opt:
+      - no-new-privileges:true
+    # All DB credentials + backup settings come straight from the root .env.
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-UTC}
+      # Where the orchestrator writes (fixed in-container paths the script uses).
+      BACKUPS_DIR: /backups
+      PROJECT_DIR: /project
+      # In-container path of the age identity (the host path in .env is for the
+      # host-side scripts; inside the container it is mounted at this fixed path).
+      AGE_KEY_FILE: /run/secrets/backup/age-identity.key
+      # Retention + extra targets + monitoring (sane defaults if unset in .env).
+      BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
+      BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
+      BACKUP_AGE_RECIPIENTS: ${BACKUP_AGE_RECIPIENTS:-}
+      BACKUP_EXTRA_TARGETS: ${BACKUP_EXTRA_TARGETS:-}
+      BACKUP_UPTIME_KUMA_PUSH_URL: ${BACKUP_UPTIME_KUMA_PUSH_URL:-}
+    volumes:
+      # Encrypted backups land in a host directory (under git-ignored ./data),
+      # so they are easy to inspect, prune and rsync offsite. Default ./data/backups.
+      - ${BACKUP_DIR:-./data/backups}:/backups
+      # The age identity directory, mounted READ-ONLY. We mount the DIRECTORY
+      # (not the file) so a missing key surfaces as a clear "key not found" error
+      # instead of Docker silently creating a bogus directory in its place.
+      - ./secrets/backup:/run/secrets/backup:ro
+      # Project root, READ-ONLY, so the job can archive critical config (compose
+      # files, Caddyfile, .env, ...). data/ and secrets/ are excluded inside the
+      # archive — see do-backup.sh.
+      - .:/project:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Shared network. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The name MUST match the base file — do
+# NOT invent a new network. The backup job only ever touches `internal`; it is
+# never placed on `proxy`.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge

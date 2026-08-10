@@ -1,0 +1,27 @@
+# Fixture (secret-free). Two services WITH limits, plus top-level volumes:/
+# networks: blocks whose 2-space keys must NOT be mistaken for services.
+name: fixture-a
+
+services:
+  alpha:
+    image: example/alpha:1.0
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+  beta:
+    image: example/beta:1.0
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M       # MAX must pick the 512M LIMIT, never this reservation
+
+volumes:
+  alpha_data:               # under volumes: — must NOT be read as a service
+
+networks:
+  internal:                 # under networks: — must NOT be read as a service
+    name: fixture_internal
+    driver: bridge

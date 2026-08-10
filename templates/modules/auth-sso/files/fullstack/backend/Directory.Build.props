@@ -1,0 +1,28 @@
+<Project>
+
+  <!-- ========================================================================
+       auth-sso (__PROJECT_NAME__) — ADDITIVE backend dependency.
+
+       MSBuild auto-imports Directory.Build.props for the project in this folder,
+       so this adds the ASP.NET Core JWT bearer package WITHOUT editing app.csproj.
+       That is deliberate: the `bookings` module already owns app.csproj (it adds
+       Npgsql), so auth-sso must NOT replace it — both contributions apply, the
+       props here plus whatever app.csproj the project ends up with (base or
+       bookings').
+
+       The package is pinned (never floating). The default version tracks the
+       base's .NET target (net10 -> 10.0.x). It is exposed as a property ONLY so
+       the version can be matched to a different SDK when verifying the build on a
+       machine without the net10 SDK (e.g. `-p:TargetFramework=net8.0
+       -p:PiJwtBearerVersion=8.0.27`); normal builds use the pinned default.
+       ===================================================================== -->
+
+  <PropertyGroup>
+    <PiJwtBearerVersion Condition="'$(PiJwtBearerVersion)' == ''">10.0.8</PiJwtBearerVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="$(PiJwtBearerVersion)" />
+  </ItemGroup>
+
+</Project>

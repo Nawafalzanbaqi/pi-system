@@ -1,0 +1,56 @@
+/* i18n-bilingual — minimal, RTL-aware base styles.
+ *
+ * Because <html dir> flips between rtl (Arabic) and ltr (English), this stylesheet
+ * uses CSS *logical* properties (inline-start/end, margin-inline, padding-inline,
+ * border-block-end) so the layout mirrors automatically between the two languages.
+ * Prefer logical properties over physical left/right ones for anything that should
+ * follow the reading direction — that is the single most important RTL convention. */
+
+:root {
+  --i18n-gap: 1rem;
+  --i18n-measure: 48rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, "Segoe UI", Tahoma, "Noto Naskh Arabic", sans-serif;
+  line-height: 1.6;
+}
+
+.i18n-page {
+  max-inline-size: var(--i18n-measure);
+  margin-inline: auto;          /* centers in both rtl and ltr */
+  padding-block: 2rem;
+  padding-inline: 1.5rem;
+}
+
+.i18n-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--i18n-gap);
+  padding-block-end: var(--i18n-gap);
+  border-block-end: 1px solid #ddd;
+}
+
+.i18n-greeting {
+  margin-block-start: var(--i18n-gap);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.i18n-page ul {
+  /* logical start padding flips to the correct side per direction */
+  padding-inline-start: 1.25rem;
+}
+
+.i18n-page code {
+  padding-inline: 0.25rem;
+  background: #f2f2f2;
+  border-radius: 0.25rem;
+}

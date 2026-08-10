@@ -1,0 +1,3 @@
+# Placeholder so /data is tracked in git while empty.
+# Persistent service data (bind-mount volumes) lives here at runtime.
+# Everything in this folder EXCEPT this file is git-ignored — never commit data.

@@ -1,0 +1,20 @@
+{
+  "//": "pi-system — sample /etc/docker/daemon.json for BOUNDED container logs.",
+  "//1": "WHY: Docker's default json-file log driver has NO size limit, so a chatty",
+  "//2": "or crash-looping container can silently fill the SSD over weeks. Setting a",
+  "//3": "default log-driver + log-opts HERE bounds EVERY container at once — the",
+  "//4": "single, central, surgical fix (no compose file is rewritten). With these",
+  "//5": "values each container keeps at most 3 x 10MB = 30MB of logs, then rotates.",
+  "//6": "",
+  "//7": "APPLY (operator, one-time, needs root + a Docker restart):",
+  "//8": "  sudo cp infrastructure/docker-daemon.json.example /etc/docker/daemon.json",
+  "//9": "  # (merge by hand if /etc/docker/daemon.json already exists)",
+  "//10": "  sudo systemctl restart docker      # recreates containers' log config",
+  "//11": "Existing containers keep their old logs until recreated (next `up`).",
+  "//12": "Per-service overrides are still possible — see docs/README.md.",
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}

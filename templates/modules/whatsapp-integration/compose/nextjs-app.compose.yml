@@ -1,0 +1,36 @@
+# ===========================================================================
+# pi-system module: whatsapp-integration (nextjs-app) — sender env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: whatsapp-integration).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh. Adds NO new
+# container and NO host ports — it MERGES the WHATSAPP_* environment into the
+# project's existing Next.js service, where the JS swappable provider (lib/whatsapp)
+# runs SERVER-SIDE inside the Route Handlers under app/api/whatsapp/. No backend is
+# required; the provider is chosen from WHATSAPP_PROVIDER (blank => mock).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__:
+    environment:
+      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-mock}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+
+# ---------------------------------------------------------------------------
+# Shared networks — declared so this fragment merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). Names MUST match the base file. The service
+# block lists no `networks:` key, so the base service keeps its own (internal +
+# proxy); these are only here for IPAM consistency on merge.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

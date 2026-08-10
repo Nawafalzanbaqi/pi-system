@@ -1,0 +1,71 @@
+# ===========================================================================
+# pi-system — project "__PROJECT_NAME__" (.NET Web API)
+# Generated __GENERATED_DATE__ by scripts/new-project.sh from template "__TEMPLATE__".
+# ---------------------------------------------------------------------------
+# A containerized .NET Web API, built from ./services/__PROJECT_NAME__, fronted
+# by Caddy at __SUBDOMAIN__.${BASE_DOMAIN} and connected to the "__DB_ENGINE__"
+# database (service "__DB_HOST__") over the shared `internal` network. It
+# publishes NO host ports — it is reachable only through Caddy.
+#
+# Bring it up with the helper (passes the base compose so the shared networks
+# resolve, and builds the image):
+#     ./scripts/project.sh up __PROJECT_NAME__
+# Start its database first (if any):  ./scripts/db.sh __DB_ENGINE__ up
+# Make sure Caddy is running:         ./scripts/start-proxy.sh
+#
+# Machine-readable metadata (used by scripts/project.sh — do not remove):
+# pi-system-subdomain: __SUBDOMAIN__
+# pi-system-db: __DB_ENGINE__
+#
+# HARD RULES (see infrastructure/docker-compose.yml): ARM64 image, multi-stage
+# build, pinned base tags (never "latest"), NO secrets in this file (values come
+# from .env), NO host ports (reached only via Caddy).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__:
+    build:
+      context: ./services/__PROJECT_NAME__
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}___PROJECT_NAME__
+    restart: unless-stopped
+    networks:
+      - internal      # reach the database (__DB_HOST__) by service name
+      - proxy         # fronted by Caddy at __SUBDOMAIN__.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_HTTP_PORTS: "8080"
+      # Base bilingual convention: default locale (ar|en) stamped at scaffold time.
+      # The i18n-bilingual module is frontend-only (not applied to this API base);
+      # for localized API responses see its README's backend (RESX) guidance.
+      DEFAULT_LOCALE: "__DEFAULT_LOCALE__"
+      # Connection string to the chosen DB, assembled by the generator from the
+      # SHARED database credentials in .env (empty when DB engine is "none").
+      # Never hard-coded — ${...} is interpolated by Compose at runtime.
+      ConnectionStrings__Default: "__DB_CONNECTION_STRING__"
+      # Per-project values — defined in the PROJECT section of .env(.example).
+      # `:-` keeps them optional (no Compose warning when still blank).
+      APP_SECRET: ${__ENVPREFIX__APP_SECRET:-}
+      OIDC_CLIENT_ID: ${__ENVPREFIX__OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${__ENVPREFIX__OIDC_CLIENT_SECRET:-}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this fragment merges cleanly with the base
+# compose file (which supplies the subnet/IPAM). The names MUST match the base
+# file — do NOT invent new networks.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

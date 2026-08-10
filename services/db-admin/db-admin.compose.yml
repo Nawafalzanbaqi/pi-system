@@ -1,0 +1,176 @@
+# ===========================================================================
+# pi-system — on-demand database admin UIs (OPTIONAL)
+# ---------------------------------------------------------------------------
+# Lightweight, visual admin front-ends for the databases in
+# services/databases/databases.compose.yml. Like the databases themselves,
+# each UI is gated behind its own Docker Compose PROFILE so NOTHING here starts
+# unless you explicitly ask for it. Bring up a UI only when you actually need
+# to poke at a database, then take it back down:
+#
+#   pgAdmin        -> profile "pgadmin"        (PostgreSQL)
+#   Adminer        -> profile "adminer"        (MySQL + PostgreSQL, lightweight)
+#   Mongo Express  -> profile "mongo-express"  (MongoDB)
+#
+# Redis is intentionally left WITHOUT a heavy GUI here (a web UI for a cache
+# rarely earns its memory on a Pi). `redis-cli` over `docker exec` covers it;
+# a small Redis UI can be added later if a project ever needs one.
+#
+# Unlike the databases (internal-only), each admin UI attaches to BOTH:
+#   * `internal` — to reach the database it manages by service name
+#                  (postgres:5432, mysql:3306, mongo:27017), and
+#   * `proxy`    — so the Caddy reverse proxy can front it over TLS.
+# NONE of them publish host ports: access is ONLY through Caddy, at
+# pgadmin.${BASE_DOMAIN}, adminer.${BASE_DOMAIN}, mongo-express.${BASE_DOMAIN}.
+# Credentials come strictly from the root .env — none are baked in here.
+#
+# ALWAYS run together with the base compose file so the shared `internal` /
+# `proxy` networks (and their subnet/IPAM) are inherited, and pass the matching
+# profile:
+#
+#   docker compose --env-file .env \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/db-admin/db-admin.compose.yml \
+#     --profile pgadmin up -d
+#
+# Or simply use the helper:   ./scripts/db-admin.sh pgadmin up
+#
+# REMINDER: start the matching DATABASE profile first — a UI is useless without
+# its database running (e.g. `./scripts/db.sh postgres up` before pgadmin), and
+# Caddy must be up (`./scripts/start-proxy.sh`) to actually reach the UI.
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5. Tags below are
+#     verified multi-arch incl. linux/arm64 (the Pi 5's Cortex-A76).
+#   * Every image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file — values come from the root .env only.
+#   * UIs publish NO host ports — they are reachable only via Caddy.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # pgAdmin — full-featured PostgreSQL admin UI. The heaviest of the three
+  # (Python/Flask), so reach for Adminer instead for quick lookups. Reaches
+  # the database as `postgres:5432`; fronted by Caddy at pgadmin.${BASE_DOMAIN}
+  # on container port 80. Profile "pgadmin": only starts when that profile is on.
+  # -------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:8.14                     # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_pgadmin
+    profiles: ["pgadmin"]
+    restart: unless-stopped
+    networks:
+      - internal           # reach the database as `postgres:5432`
+      - proxy              # fronted by Caddy at pgadmin.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    # Initial login + listen port from .env. pgAdmin is multi-user; this seeds
+    # the first administrator account. PGADMIN_DEFAULT_EMAIL must be a valid
+    # e-mail format. Pin the listen port to 80 so it matches the Caddyfile.
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_LISTEN_PORT: "80"
+      # Behind Caddy (TLS terminated upstream, exactly ONE proxy hop): trust its
+      # X-Forwarded-* headers so logins, CSRF and redirects use the right
+      # scheme/host instead of the internal http URL.
+      PGADMIN_CONFIG_PROXY_X_FOR_COUNT: "1"
+      PGADMIN_CONFIG_PROXY_X_PROTO_COUNT: "1"
+      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: "1"
+      PGADMIN_CONFIG_PROXY_X_PORT_COUNT: "1"
+      PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT: "1"
+    volumes:
+      # Persist server definitions + pgAdmin's own user database. The image runs
+      # as uid 5050 and seeds the volume with the right ownership on first use.
+      - pgadmin_data:/var/lib/pgadmin
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # Adminer — single-file, lightweight admin UI covering BOTH PostgreSQL and
+  # MySQL. No stored state and no credentials of its own: you pick the engine
+  # and enter the database login on its sign-in page. Reaches databases over
+  # `internal` (postgres:5432 / mysql:3306); fronted by Caddy at
+  # adminer.${BASE_DOMAIN} on container port 8080. Profile "adminer".
+  # -------------------------------------------------------------------------
+  adminer:
+    image: adminer:4.8.1                           # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_adminer
+    profiles: ["adminer"]
+    restart: unless-stopped
+    networks:
+      - internal           # reach postgres:5432 / mysql:3306 by name
+      - proxy              # fronted by Caddy at adminer.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    # Optional convenience only: pre-fills the "Server" field on the login page
+    # (e.g. "postgres" or "mysql"). Blank => you type the server yourself. The
+    # actual user/password are always entered interactively, never stored.
+    environment:
+      ADMINER_DEFAULT_SERVER: ${ADMINER_DEFAULT_SERVER:-}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # -------------------------------------------------------------------------
+  # Mongo Express — web admin UI for MongoDB. Connects as the Mongo root user
+  # you set in the DATABASES section of .env (reused, not duplicated), against
+  # `mongo:27017`. The web UI itself is protected by its own HTTP basic auth
+  # (ME_CONFIG_BASICAUTH_*) — required, since it is internet-facing via Caddy.
+  # Fronted by Caddy at mongo-express.${BASE_DOMAIN} on container port 8081.
+  # Profile "mongo-express".
+  # -------------------------------------------------------------------------
+  mongo-express:
+    image: mongo-express:1.0.2                     # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_mongo-express
+    profiles: ["mongo-express"]
+    restart: unless-stopped
+    networks:
+      - internal           # reach the database as `mongo:27017`
+      - proxy              # fronted by Caddy at mongo-express.${BASE_DOMAIN}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # --- Connection to the running MongoDB --------------------------------
+      # Reuses the root credentials from the DATABASES section of .env, so start
+      # the `mongo` profile first. Discrete host/user/pass vars (not a single
+      # URL) avoid URL-encoding pitfalls when the password has special chars.
+      ME_CONFIG_MONGODB_SERVER: "mongo"
+      ME_CONFIG_MONGODB_PORT: "27017"
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+      ME_CONFIG_MONGODB_AUTH_DATABASE: "admin"
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      # --- Basic auth protecting the Mongo Express UI itself (required) ------
+      ME_CONFIG_BASICAUTH_USERNAME: ${ME_CONFIG_BASICAUTH_USERNAME}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${ME_CONFIG_BASICAUTH_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# ---------------------------------------------------------------------------
+# Named volume(s) for persistent state. Compose prefixes them with the project
+# name, e.g. "pi-system_pgadmin_data". Only pgAdmin keeps state (its server
+# list + user db); Adminer and Mongo Express are stateless.
+# ---------------------------------------------------------------------------
+volumes:
+  pgadmin_data:
+
+# ---------------------------------------------------------------------------
+# Shared networks. Declared so this file merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The names MUST match the base file —
+# do NOT invent new networks. Each admin UI sits on BOTH `internal` (to reach
+# its database) and `proxy` (so Caddy can front it).
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

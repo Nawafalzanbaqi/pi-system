@@ -1,0 +1,150 @@
+# ===========================================================================
+# pi-system module: content-admin — headless CMS (Directus) for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: content-admin).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh (it picks up
+# every services/__PROJECT_NAME__/__PROJECT_NAME__.*.compose.yml), so the CMS
+# comes up with the project. Two services, brought up together as one unit:
+#
+#   __PROJECT_NAME__-cms-db -> a DEDICATED PostgreSQL for the CMS, isolated from
+#                              the shared databases in services/databases and from
+#                              the project's OWN database. Internal-only, no host
+#                              ports, its own per-project volume. (Same idea as the
+#                              auth layer's private keycloak-db.) This is why
+#                              content-admin works regardless of the project's
+#                              --db choice (postgres / mysql / mongo / none).
+#   __PROJECT_NAME__-cms    -> Directus, the headless CMS. INTERNAL-ONLY (no
+#                              `proxy`, no host ports). The project's frontend /
+#                              backend call its REST/GraphQL API server-side over
+#                              the internal network at "http://__PROJECT_NAME__-cms:8055".
+#                              The /admin UI is reached over an SSH tunnel via the
+#                              commented bootstrap port below — see the README.
+#
+# FIRST BOOT: Directus auto-runs its database migrations and creates the first
+# admin user from CMS_ADMIN_EMAIL / CMS_ADMIN_PASSWORD when the DB is empty. This
+# takes ~15-30s (longer on a cold Pi) — give it a moment before the API answers.
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — this runs on a Pi 5. Both tags below are
+#     verified multi-arch incl. linux/arm64 via the Docker Hub API.
+#   * Every image pinned to an explicit tag. NEVER "latest".
+#   * No secrets in this file — every credential comes from the root .env only.
+#   * Internal-only, NO host ports (the one bootstrap port stays commented).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # __PROJECT_NAME__-cms-db — the CMS's OWN, dedicated PostgreSQL.
+  # Deliberately separate from the shared engines in services/databases AND from
+  # the project's own database: the CMS owns its content store with its own
+  # lifecycle and volume. Internal-only, reached by Directus as
+  # "__PROJECT_NAME__-cms-db:5432". User/database names are non-secret literals;
+  # only the password comes from .env.
+  # -------------------------------------------------------------------------
+  __PROJECT_NAME__-cms-db:
+    image: postgres:16.6-alpine                    # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}___PROJECT_NAME__-cms-db
+    restart: unless-stopped
+    networks:
+      - internal           # internal-only; reached as "__PROJECT_NAME__-cms-db:5432"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: directus
+      POSTGRES_DB: directus
+      POSTGRES_PASSWORD: ${CMS_DB_PASSWORD}        # required — set in .env
+    volumes:
+      - __PROJECT_NAME___cms_db_data:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes Compose interpolation so the literal $VAR reaches the shell
+      # INSIDE the container, where POSTGRES_USER / POSTGRES_DB are defined.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # __PROJECT_NAME__-cms — Directus headless CMS (Node.js).
+  # Internal-only: the app(s) call its API by service name over `internal`.
+  # No healthcheck is declared here (consistent with the platform's other app
+  # services, e.g. Keycloak) — callers degrade gracefully if the CMS is still
+  # booting (see the shipped client wrappers). It waits for its DB to be healthy.
+  # -------------------------------------------------------------------------
+  __PROJECT_NAME__-cms:
+    image: directus/directus:11.17.4               # multi-arch incl. linux/arm64
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}___PROJECT_NAME__-cms
+    restart: unless-stopped
+    depends_on:
+      __PROJECT_NAME__-cms-db:
+        condition: service_healthy                 # wait for the CMS DB to be ready
+    networks:
+      - internal           # internal-only; reached as "http://__PROJECT_NAME__-cms:8055"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # --- Security keys (REQUIRED) — distinct random strings, set in .env -----
+      # KEY identifies the instance; SECRET signs access tokens. Keep them stable.
+      KEY: ${CMS_KEY}
+      SECRET: ${CMS_SECRET}
+      # --- First admin (auto-created on first boot when the DB is empty) -------
+      ADMIN_EMAIL: ${CMS_ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${CMS_ADMIN_PASSWORD}
+      # --- Connection to the dedicated CMS DB above ---------------------------
+      DB_CLIENT: pg
+      DB_HOST: __PROJECT_NAME__-cms-db
+      DB_PORT: "5432"
+      DB_DATABASE: directus
+      DB_USER: directus
+      DB_PASSWORD: ${CMS_DB_PASSWORD}
+      # --- Public URL: "/" => relative URLs, correct for an internal-only CMS
+      # (and for reaching /admin over an SSH tunnel). Override only if exposed. --
+      PUBLIC_URL: ${CMS_PUBLIC_URL:-/}
+    volumes:
+      # Persist uploaded assets and any installed extensions (per-project volumes).
+      - __PROJECT_NAME___cms_uploads:/directus/uploads
+      - __PROJECT_NAME___cms_extensions:/directus/extensions
+    # ---- Bootstrap access to /admin (OPTIONAL, normally OFF) ----------------
+    # The CMS is internal-only (not on `proxy`, no host ports), so Caddy does not
+    # front it. To open the Directus admin UI, TEMPORARILY uncomment the line
+    # below — it binds to 127.0.0.1 on the Pi ONLY (never the LAN) — then reach it
+    # over an SSH tunnel and re-comment when done:
+    #     ssh -L 8055:127.0.0.1:8055 <user>@<pi-host>
+    #     # then browse  http://localhost:8055/admin
+    # ports:
+    #   - "127.0.0.1:${CMS_BOOTSTRAP_PORT:-8055}:8055"
+    deploy:
+      resources:
+        limits:
+          # Directus (Node) is comfortable in 512M for the light content workloads
+          # these sites need; first-boot migrations are the heaviest moment.
+          memory: 512M
+
+# ---------------------------------------------------------------------------
+# Named volumes for the CMS, namespaced with the project name so two projects
+# that both use content-admin never share a volume. Compose additionally prefixes
+# them with the project name, e.g. "pi-system___PROJECT_NAME___cms_db_data".
+# scripts/project.sh `down` removes only containers — these volumes (and thus all
+# content) survive.
+# ---------------------------------------------------------------------------
+volumes:
+  __PROJECT_NAME___cms_db_data:
+  __PROJECT_NAME___cms_uploads:
+  __PROJECT_NAME___cms_extensions:
+
+# ---------------------------------------------------------------------------
+# Shared network. Declared so this fragment merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). The name MUST match the base file — do
+# NOT invent a new network. Both CMS services sit on `internal` only.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge

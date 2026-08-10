@@ -1,0 +1,213 @@
+{
+  "name": "Telegram Management Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "b0000000-0001-4a01-8a01-000000000001",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -380,
+        40
+      ],
+      "webhookId": "b0b0b0b0-0000-4000-8000-00000000aaaa"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Telegram management bot — authorize, parse & plan ──────────────────────\n// MIRRORS scripts/lib/bot-lib.sh (the canonical logic, covered by tests/bot/).\n// NO AI and NO network: every command is deterministic. If you change a table\n// here, change it in scripts/lib/bot-lib.sh too.\n//\n// WHITELIST: command -> bot-exec ACTION ('' = answered here, never sent to host).\nconst CMD_ACTION = {\n  status: 'status', health: 'health', check: 'check', projects: 'projects',\n  up: 'up', down: 'down', project_up: 'project_up', project_down: 'project_down',\n  audit_url: 'audit_url', panel_audit_url: 'panel_audit_url',\n  help: '',\n};\n// Argument rule per action: none | profile (optional, default core) | project | url.\nconst ARG_RULE = {\n  status: 'none', health: 'none', check: 'none', projects: 'none',\n  up: 'profile', down: 'profile', project_up: 'project', project_down: 'project',\n  audit_url: 'url', panel_audit_url: 'url',\n};\nconst PROFILES = ['core', 'dev', 'auth', 'automation'];\nconst DEFAULT_PROFILE = 'core';\nconst PROJECT_RE = /^[a-z][a-z0-9-]{0,38}[a-z0-9]$/;\n// URL shape: http(s), no whitespace. The host bridge re-validates AND runs the\n// SSRF guard (services/seo/engine/ssrf-check.js) before any audit container.\nconst URL_RE = /^https?:\\/\\/[^\\s]+$/;\n\nconst HELP = [\n  'pi-system bot — commands (operator only)', '',\n  'Read-only:',\n  '  /status      whole-system snapshot',\n  '  /health      host hardware health',\n  '  /check       read-only readiness gates',\n  '  /projects    list generated projects + state', '',\n  'State-changing (logged):',\n  '  /up <profile>    core | dev | auth | automation (default core)',\n  '  /down <profile>  default core',\n  '  /project_up <name>    start a generated project',\n  '  /project_down <name>  stop a generated project',\n  '  /audit_url <url>      audit a single http(s) URL (SSRF-guarded; standard depth)',\n  '  /panel_audit_url <url>  same, deep depth (specialist panel — up to ~7 AI calls)', '',\n  '  /help        this message',\n].join('\\n');\n\n// --- the incoming Telegram message ---\nconst msg = $json.message || $json.channel_post || {};\nconst senderId = (msg.from && msg.from.id != null) ? String(msg.from.id) : '';\nconst chatId = (msg.chat && msg.chat.id != null) ? String(msg.chat.id) : senderId;\nconst text = String(msg.text || msg.caption || '').trim();\n\n// --- ALLOWLIST authorization (FAIL CLOSED) ---\n// Empty sender id OR an empty allowlist => deny. Only an exact id match passes.\nconst allowed = String($env.TELEGRAM_ALLOWED_IDS || '').split(/[\\s,;]+/).filter(Boolean);\nconst authorized = senderId !== '' && allowed.length > 0 && allowed.includes(senderId);\n\nconst out = { chatId, senderId, authorized, needsExec: false, action: '', arg: '', label: '', reply: '' };\n\nif (!authorized) {\n  console.log('[telegram-bot] DENIED sender=' + (senderId || '?'));\n  out.reply = '⛔ Not authorized. This bot is locked to its operator.';\n  return [{ json: out }];\n}\n\n// --- parse: strip a leading slash, take the first two tokens, drop @botname ---\nconst parts = text.replace(/^\\//, '').split(/\\s+/);\nconst cmd = String(parts[0] || '').replace(/@.*$/, '').toLowerCase();\nconst arg = parts[1] || '';\n\nif (cmd === '' || cmd === 'help') { out.reply = HELP; return [{ json: out }]; }\nif (!(cmd in CMD_ACTION)) { out.reply = '❓ Unknown command: /' + cmd + '\\n\\n' + HELP; return [{ json: out }]; }\n\nconst action = CMD_ACTION[cmd];\nconst rule = ARG_RULE[action];\nlet finalArg = arg;\n\nif (rule === 'none' && arg) { out.reply = 'ℹ️ /' + cmd + ' takes no argument.'; return [{ json: out }]; }\nif (rule === 'profile') {\n  finalArg = arg || DEFAULT_PROFILE;\n  if (!PROFILES.includes(finalArg)) {\n    out.reply = '⚠️ Invalid profile: ' + finalArg + ' (allowed: core dev auth automation)';\n    return [{ json: out }];\n  }\n}\nif (rule === 'project') {\n  if (!arg) { out.reply = '⚠️ /' + cmd + ' requires a project name.'; return [{ json: out }]; }\n  if (!PROJECT_RE.test(arg)) { out.reply = '⚠️ Malformed project name: ' + arg; return [{ json: out }]; }\n  // Existence is re-checked on the host by bot-exec.sh (authoritative).\n}\nif (rule === 'url') {\n  if (!arg) { out.reply = '⚠️ /' + cmd + ' requires a URL.'; return [{ json: out }]; }\n  if (!URL_RE.test(arg)) { out.reply = '⚠️ URL must be http(s) and contain no whitespace.'; return [{ json: out }]; }\n  // The host re-validates AND runs the SSRF guard before any audit container.\n}\n\nout.needsExec = true;\nout.action = action;\nout.arg = (rule === 'none') ? '' : finalArg;\nout.label = '/' + cmd + (out.arg ? ' ' + out.arg : '');\nconsole.log('[telegram-bot] OK sender=' + senderId + ' -> ' + out.label);\nreturn [{ json: out }];"
+      },
+      "id": "b0000000-0002-4a02-8a02-000000000002",
+      "name": "Authorize, parse & plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0000000-0000-4000-8000-0000000000ex",
+              "leftValue": "={{ $json.needsExec }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b0000000-0003-4a03-8a03-000000000003",
+      "name": "Execute on host?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        120,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "command": "={{ $json.action }}{{ $json.arg ? ' ' + $json.arg : '' }}",
+        "cwd": "/"
+      },
+      "id": "b0000000-0004-4a04-8a04-000000000004",
+      "name": "Run bot-exec.sh on host",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        380,
+        -80
+      ],
+      "notes": "Attach a DEDICATED SSH credential. See the bridge sticky note."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Authorize, parse & plan').item.json.chatId }}",
+        "text": "={{ '🛠 ' + $('Authorize, parse & plan').item.json.label + '  (exit ' + ($json.exitCode != null ? $json.exitCode : '?') + ')\\n\\n' + (String($json.stdout || '') + String($json.stderr || '')).slice(0, 3800) }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "b0000000-0005-4a05-8a05-000000000005",
+      "name": "Reply: command result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        620,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "b0000000-0006-4a06-8a06-000000000006",
+      "name": "Reply: message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        380,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Telegram management bot  (locked to the operator)\n\nLets the operator monitor & control the platform from Telegram. **No AI** — every\ncommand is deterministic. Flow:\n\n```\nTelegram Trigger → Authorize, parse & plan → Execute on host? ─┬─(true)→ Run bot-exec.sh (SSH) → Reply: command result\n   (your bot)        (allowlist + whitelist)                   └─(false)→ Reply: message  (denial / help / unknown / error)\n```\n\n### One-time MANUAL setup (deferred — do this on the Pi)\n1. **BotFather** → create a bot → copy the **token**.\n2. Find **your** numeric Telegram user id (e.g. message `@userinfobot`).\n3. In `.env`: set `TELEGRAM_ALLOWED_IDS=<your id>` (comma-separated for more than\n   one). Restart n8n so `$env.TELEGRAM_ALLOWED_IDS` is visible here.\n4. In n8n, create a **Telegram API** credential (the BotFather token) and select\n   it on **Telegram Trigger** and both **Reply** nodes.\n5. Wire the host bridge (see the other note), then **Save** + toggle **Active**.\n\n### SECURITY MODEL\n- **Allowlist (fail closed):** the *Authorize* node only proceeds for a sender id\n  in `TELEGRAM_ALLOWED_IDS`. Empty id or empty allowlist → **denied**. Never an\n  open bot.\n- **Whitelist only:** unknown commands are refused with `/help`.\n- **No secrets in replies.** The token lives in an n8n credential; the allowlist\n  in `.env`. This JSON is committed — keep secrets OUT of it.",
+        "height": 540,
+        "width": 520,
+        "color": 4
+      },
+      "id": "b0000000-0007-4a07-8a07-000000000007",
+      "name": "How to use / security model",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -380,
+        -540
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## The execution bridge — `scripts/bot-exec.sh`  (security boundary)\n\nn8n is **not** given the Docker socket or the host filesystem. State/▸read\ncommands run on the host through **`scripts/bot-exec.sh`** over SSH with a\n**dedicated key**. That script accepts ONLY a fixed action set, validates every\nargument, logs every call, and never evals input.\n\n### Wire the **Run bot-exec.sh on host** (SSH) node\n1. Create a dedicated key on the Pi for n8n; add it as an n8n **SSH** credential\n   (private key) and select it on the SSH node.\n2. **Recommended hardening** — pin that key in `~/.ssh/authorized_keys` so it can\n   ONLY launch the bridge (the requested action arrives in `$SSH_ORIGINAL_COMMAND`):\n\n   ```\n   command=\"bash /PATH/TO/pi-system/scripts/bot-exec.sh --from-ssh\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... n8n-bot\n   ```\n3. The SSH node sends only the **validated** `\"<action> <arg>\"` string; the host\n   re-validates. Defence in depth.\n\nRead-only: `/status /health /check /projects`. State-changing (logged):\n`/up /down /project_up /project_down /audit_url /panel_audit_url`. The audit_url\nfamily takes a SINGLE http(s) URL (no whitespace) and runs the same SSRF-guarded\nSEO engine — `/audit_url` at standard depth, `/panel_audit_url` at deep depth\n(specialist panel). The URL is rejected BEFORE Docker if it points at an internal\nhost / uses a non-http(s) scheme / embeds credentials; it is then passed as a\nSINGLE argv element end-to-end (never interpolated). Full details: `docs/README.md`\n→ *Telegram management bot*.",
+        "height": 540,
+        "width": 520,
+        "color": 5
+      },
+      "id": "b0000000-0008-4a08-8a08-000000000008",
+      "name": "Execution bridge / SSH",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        180,
+        -540
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Authorize, parse & plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorize, parse & plan": {
+      "main": [
+        [
+          {
+            "node": "Execute on host?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute on host?": {
+      "main": [
+        [
+          {
+            "node": "Run bot-exec.sh on host",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run bot-exec.sh on host": {
+      "main": [
+        [
+          {
+            "node": "Reply: command result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

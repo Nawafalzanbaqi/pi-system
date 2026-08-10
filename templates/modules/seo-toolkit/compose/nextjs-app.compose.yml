@@ -1,0 +1,42 @@
+# ===========================================================================
+# pi-system module: seo-toolkit (nextjs-app) — SEO env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: seo-toolkit).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh, which picks
+# up every services/__PROJECT_NAME__/__PROJECT_NAME__.*.compose.yml. This fragment
+# adds NO new container and NO host ports — it only MERGES the SEO env into the
+# project's existing Next.js service so app/sitemap.js, app/robots.js, the
+# buildMetadata helper and the StructuredData component read them at request time.
+# (Compose unions service `environment` maps across files; later wins.)
+#
+# All default to BLANK — the site still builds (sane fallbacks), but set SEO_SITE_URL
+# in .env so canonical/Open-Graph URLs and the sitemap are ABSOLUTE:
+#   SEO_SITE_URL    this site's public URL. Read first from a PER-PROJECT override
+#                   (__ENVPREFIX__SEO_SITE_URL) so each hosted site can have its own,
+#                   falling back to a shared SEO_SITE_URL.
+#   SEO_SITE_NAME   the brand/site name (title fallback, OG, JSON-LD).
+#   SEO_LOCALES     sitemap/hreflang locales (default ar,en — matches i18n).
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__:
+    environment:
+      SEO_SITE_URL: ${__ENVPREFIX__SEO_SITE_URL:-${SEO_SITE_URL:-}}
+      SEO_SITE_NAME: ${__ENVPREFIX__SEO_SITE_NAME:-${SEO_SITE_NAME:-}}
+      SEO_LOCALES: ${__ENVPREFIX__SEO_LOCALES:-${SEO_LOCALES:-}}
+
+# ---------------------------------------------------------------------------
+# Shared networks — declared so this fragment merges cleanly with the base compose
+# file (which supplies the subnet/IPAM). Names MUST match the base file. The service
+# block above lists no `networks:` key, so the base service keeps its own (internal +
+# proxy); these are only here for IPAM consistency on merge.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

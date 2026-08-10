@@ -1,0 +1,10 @@
+{
+  "name": "pi-prospects-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "pi-system client prospect organizer — a self-hosted, operator-owned CRM-lite for a MANUAL client-acquisition workflow. Pure Node, no deps. It ORGANIZES a pipeline the operator enters by hand and ANALYZES a prospect's OWN public website by REUSING services/seo (no parallel analyzer). It NEVER scrapes any platform and NEVER sends or bulk-sends outreach — the operator contacts prospects manually. The optional AI enrichment is the same inert-until-keyed seam as the SEO engine.",
+  "bin": {
+    "pi-prospects": "prospects.js"
+  }
+}

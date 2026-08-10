@@ -1,0 +1,38 @@
+# ===========================================================================
+# pi-system module: local-payments (fullstack) — payment env for "__PROJECT_NAME__"
+# Generated __GENERATED_DATE__ by scripts/new-project.sh (module: local-payments).
+# ---------------------------------------------------------------------------
+# Loaded ALONGSIDE the project's main fragment by scripts/project.sh. Adds NO new
+# container and NO host ports. On fullstack the .NET BACKEND owns the swappable
+# provider (it holds the API key, records intents, verifies webhooks); the frontend
+# calls it server-side via the BACKEND_URL the base already injects, and proxies the
+# public webhook to it — so the web service needs no PAYMENTS_* secrets.
+#
+#   __PROJECT_NAME__-api  -> gets the PAYMENTS_* env + the HostingStartup flag that
+#                            activates the additive payment service. PAYMENTS_PUBLIC_URL
+#                            (the FRONTEND's public origin) is where it builds the
+#                            provider callback (/payment/return) and webhook URL.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  __PROJECT_NAME__-api:
+    environment:
+      ASPNETCORE_HOSTINGSTARTUPASSEMBLIES: "app"
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-mock}
+      PAYMENTS_API_KEY: ${PAYMENTS_API_KEY:-}
+      PAYMENTS_PUBLISHABLE_KEY: ${PAYMENTS_PUBLISHABLE_KEY:-}
+      PAYMENTS_WEBHOOK_SECRET: ${PAYMENTS_WEBHOOK_SECRET:-}
+      PAYMENTS_CURRENCY: ${PAYMENTS_CURRENCY:-SAR}
+      # The public origin is the FRONTEND (Caddy fronts the web service). The backend
+      # builds the provider callback + webhook URLs against it.
+      PAYMENTS_PUBLIC_URL: ${PAYMENTS_PUBLIC_URL:-https://__SUBDOMAIN__.${BASE_DOMAIN:-localhost}}
+
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
+  proxy:
+    name: ${PROXY_NETWORK_NAME:-pi_proxy}
+    driver: bridge

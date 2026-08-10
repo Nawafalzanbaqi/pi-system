@@ -1,0 +1,10 @@
+{
+  "appName": "__PROJECT_NAME__",
+  "greeting": "Welcome",
+  "tagline": "A bilingual (Arabic/English) app, ready to run, from the pi-system platform.",
+  "currentLanguage": "Current language",
+  "direction": "Text direction",
+  "switchLanguage": "Switch language",
+  "home": "Home",
+  "healthCheck": "Health check"
+}

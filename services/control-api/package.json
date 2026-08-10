@@ -1,0 +1,19 @@
+{
+  "name": "control-api",
+  "private": true,
+  "version": "0.2.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "15.5.18",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "jose": "5.9.6",
+    "openid-client": "5.7.1",
+    "framer-motion": "11.18.2",
+    "recharts": "2.15.4"
+  }
+}

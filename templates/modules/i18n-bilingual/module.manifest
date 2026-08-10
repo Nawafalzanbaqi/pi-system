@@ -1,0 +1,45 @@
+# ===========================================================================
+# pi-system module declaration — see ../README.md for the full contract.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: i18n-bilingual
+
+# One line describing what the module does.
+description: Arabic/English UI with RTL/LTR switching, message catalogues, and locale-prefixed routes.
+
+# implemented = the generator composes it in. planned = skipped + recorded as a TODO.
+status: implemented
+
+# Base shapes this module supports (comma-separated, or "all").
+# It is an in-app FRONTEND feature, so it targets the Next.js shapes. On a pure
+# dotnet-api base it is not composed; see this module's README for the optional
+# backend (RESX) localization guidance instead.
+base_compatible: nextjs-app, fullstack
+
+# Database engine this module needs: postgres | mysql | mongo | none.
+database: none
+
+# External account / approved API keys required to activate, or "none".
+external_credentials: none
+
+# Env vars this module needs, as EMPTY templates (names only), or "none".
+# SUPPORTED_LOCALES is an OPTIONAL record of the locales this project supports
+# (default "ar,en", which the module already ships). The active default locale
+# comes from the base's NEXT_PUBLIC_DEFAULT_LOCALE. See env.example / README.
+env: SUPPORTED_LOCALES
+
+# Source files this module layers onto the project (relative path), or "none".
+# A files/<base>/ subtree overrides the generic files/ tree, so each compatible
+# base gets its code at the right path (nextjs-app at the app root; fullstack
+# under frontend/). The generator substitutes the base placeholders into them.
+files: files
+
+# Compose fragment this module contributes (relative path), or "none".
+# i18n runs inside the existing web container — no extra service.
+compose: none
+
+# Caddy snippet this module adds to the project's site block (relative path), or "none".
+# Locale routing is handled in-app by Next.js middleware — no proxy changes.
+caddy_routes: none

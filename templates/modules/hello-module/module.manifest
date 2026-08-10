@@ -1,0 +1,38 @@
+# ===========================================================================
+# pi-system module declaration — see ../README.md for the full contract.
+# Line-based "key: value" so the generator parses it with plain shell (no YAML).
+# ===========================================================================
+
+# Identifier (must equal this folder's name).
+name: hello-module
+
+# One line describing what the module does.
+description: Reference module — contributes empty env templates only (no container, no routes).
+
+# implemented = the generator composes it in. planned = skipped + recorded as a TODO.
+status: implemented
+
+# Base shapes this module supports (comma-separated, or "all").
+base_compatible: all
+
+# Database engine this module needs: postgres | mysql | mongo | none.
+database: none
+
+# External account / approved API keys required to activate, or "none".
+external_credentials: none
+
+# Env vars this module needs, as EMPTY templates (names only), or "none".
+# Mirrored (blank) in env.example. The generator appends these to the project's
+# .env.example section, labelled with this module's name. Never put values here.
+env: HELLO_MODULE_ENABLED, HELLO_MODULE_GREETING
+
+# Source files this module layers onto the project (relative path), or "none".
+# This reference module ships no source, so: none.
+files: none
+
+# Compose fragment this module contributes (relative path), or "none".
+# This reference module runs no container, so: none.
+compose: none
+
+# Caddy snippet this module adds to the project's site block (relative path), or "none".
+caddy_routes: none

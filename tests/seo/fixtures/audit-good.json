@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "name": "good-site",
+  "url": "https://good.example.com",
+  "engine": "probe",
+  "timestamp": "2026-05-23T10:00:00.000Z",
+  "ok": true,
+  "status": 200,
+  "metrics": {
+    "responseMs": 110,
+    "htmlBytes": 9000,
+    "requests": 1
+  },
+  "checks": {
+    "https": true,
+    "title": {
+      "present": true,
+      "length": 35
+    },
+    "metaDescription": {
+      "present": true,
+      "length": 120
+    },
+    "h1": {
+      "count": 1
+    },
+    "viewport": true,
+    "lang": "ar",
+    "dir": "rtl",
+    "canonical": true,
+    "openGraph": {
+      "title": true,
+      "description": true,
+      "image": true
+    },
+    "twitterCard": false,
+    "imagesTotal": 1,
+    "imagesMissingAlt": 0,
+    "structuredData": true,
+    "robotsTxt": true,
+    "sitemapXml": true
+  },
+  "scores": {
+    "performance": 100,
+    "accessibility": 100,
+    "best-practices": 100,
+    "seo": 100
+  }
+}

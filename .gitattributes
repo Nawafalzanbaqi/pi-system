@@ -1,0 +1,13 @@
+# Normalise line endings. Critical: shell scripts must stay LF so they run on
+# the Pi even when edited/committed from Windows (avoids the /bin/bash^M error).
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Treat common binaries as binary (no EOL normalisation).
+*.png  binary
+*.jpg  binary
+*.gz   binary
+*.pdf  binary

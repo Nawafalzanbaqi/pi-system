@@ -1,0 +1,141 @@
+# ===========================================================================
+# pi-system — SEO & SITE-QUALITY auditor  [OPTIONAL, profile-gated, on-demand]
+# ---------------------------------------------------------------------------
+# Scheduled / on-demand auditing of the sites the operator OWNS (their portfolio +
+# the client sites they host). It runs the audit, scores it (performance, SEO,
+# accessibility, best-practices), stores the result over time so trends are
+# visible, and produces FREE, deterministic, rule-based recommendations (with an
+# OPTIONAL, ready-but-inert AI enrichment — see ai.js / the SEO section of
+# .env.example). Growth layer #3.
+#
+# DESIGN — honest about the Pi, consistent with the platform's ethos:
+#   * NEITHER service is always-on. Both sit behind the Compose PROFILE "seo" and
+#     are launched as ONE-SHOT containers (restart: "no") by scripts/seo.sh via
+#     `docker compose run --rm`, then exit. ZERO RAM is used when idle. They are
+#     scheduled with the existing host-cron pattern (scripts/seo-install-cron.sh),
+#     NOT an always-on browser.
+#   * The DEFAULT engine (seo-auditor) is a pure-Node HTTP probe with NO browser —
+#     light, fast, ARM64-trivial (see services/seo/Dockerfile). The REAL Lighthouse
+#     engine (seo-lighthouse) bundles headless Chromium and is HEAVY; it is OPT-IN
+#     only (`./scripts/seo.sh audit <site> --engine lighthouse`) with a higher
+#     memory limit, never run by default.
+#   * Results are stored as append-only JSON Lines under data/seo/ (git-ignored) —
+#     a file-backed, server-less store keyed BY SERVICE NAME. No always-on database
+#     server is run for a few audit rows a day (the same Pi-aware reasoning the
+#     quality gate and backup/health-monitor use). See services/seo/engine/store.js.
+#   * Audited sites are the operator's OWN, public URLs, fetched OUTBOUND over the
+#     `internal` network (which permits egress — it is not `internal: true`). The
+#     services attach to `internal` ONLY, publish NO host ports, and are never on
+#     `proxy` (there is no inbound dashboard by default; results are read via
+#     scripts/seo.sh and the generated report files).
+#
+# Bring up a one-shot run (normally via the helper, shown raw here):
+#   docker compose --env-file .env --project-directory . \
+#     -f infrastructure/docker-compose.yml \
+#     -f services/seo/seo.compose.yml \
+#     --profile seo run --rm seo-auditor audit --name <site> --url <https url>
+# Or simply:   ./scripts/seo.sh audit <site>
+#
+# HARD RULES (see infrastructure/docker-compose.yml):
+#   * ARM64 (linux/arm64) images only — Pi 5. Built from node:22-alpine (+ Alpine
+#     chromium for the optional engine), all arm64.
+#   * Pinned versions (in the Dockerfiles). NEVER "latest".
+#   * No secrets in this file — config + the OPTIONAL AI key come from the root .env.
+#   * internal-only; NO host ports.
+# ===========================================================================
+
+name: ${COMPOSE_PROJECT_NAME:-pi-system}
+
+services:
+  # -------------------------------------------------------------------------
+  # seo-auditor — the DEFAULT, lightweight probe engine (no browser).
+  # One-shot: it audits one site (or is looped per-site by scripts/seo.sh), writes
+  # the result + report under /data (host data/seo), and exits.
+  # -------------------------------------------------------------------------
+  seo-auditor:
+    build:
+      context: ./services/seo
+      dockerfile: Dockerfile
+    image: ${COMPOSE_PROJECT_NAME:-pi-system}/seo-auditor:1.0.0   # locally built, pinned
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_seo-auditor
+    profiles: ["seo"]                 # never auto-starts; run on demand only
+    restart: "no"                     # one-shot job — must NOT restart-loop
+    networks:
+      - internal                      # outbound egress to the operator's own sites
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      # Results store inside the container (mapped to host data/seo below).
+      SEO_DATA_DIR: /data
+      # OPTIONAL AI enrichment — INERT unless BOTH are set (your own key; usage-billed).
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      # OPTIONAL PDF export (off by default). Empty -> the `report-pdf` command writes
+      # the Markdown + a print-ready HTML only; set to an INSTALLED renderer module to
+      # also emit a PDF (see services/seo/README.md → "Optional PDF export").
+      SEO_PDF_RENDERER: ${SEO_PDF_RENDERER:-}
+      SEO_REPORT_LOCALE: ${SEO_REPORT_LOCALE:-}
+      # OPTIONAL notifier (shares the platform's alert channels). All optional.
+      SEO_UPTIME_KUMA_PUSH_URL: ${SEO_UPTIME_KUMA_PUSH_URL:-}
+      SEO_NOTIFY_CMD: ${SEO_NOTIFY_CMD:-}
+    volumes:
+      # Audit history, latest snapshots and reports land here (git-ignored ./data).
+      - ${SEO_DATA_DIR:-./data/seo}:/data
+    deploy:
+      resources:
+        limits:
+          # The probe is light (Node + a fetch); 256M is comfortable headroom.
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # seo-lighthouse — OPTIONAL real Lighthouse engine (headless Chromium). HEAVY.
+  # Opt-in only (`./scripts/seo.sh audit <site> --engine lighthouse`). Same profile,
+  # but `run` only starts the service you name, so this never runs unless asked.
+  # -------------------------------------------------------------------------
+  seo-lighthouse:
+    build:
+      context: ./services/seo
+      dockerfile: Dockerfile.lighthouse
+    image: ${COMPOSE_PROJECT_NAME:-pi-system}/seo-lighthouse:1.0.0  # locally built, pinned
+    container_name: ${COMPOSE_PROJECT_NAME:-pi-system}_seo-lighthouse
+    profiles: ["seo"]                 # never auto-starts; run on demand only
+    restart: "no"                     # one-shot job — must NOT restart-loop
+    networks:
+      - internal                      # outbound egress to the operator's own sites
+    security_opt:
+      - no-new-privileges:true
+    # Headless Chromium uses shared memory; we pass --disable-dev-shm-usage but give
+    # it a little anyway so heavy pages don't crash the renderer.
+    shm_size: "512mb"
+    environment:
+      TZ: ${TZ:-UTC}
+      SEO_DATA_DIR: /data
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      SEO_UPTIME_KUMA_PUSH_URL: ${SEO_UPTIME_KUMA_PUSH_URL:-}
+      SEO_NOTIFY_CMD: ${SEO_NOTIFY_CMD:-}
+    volumes:
+      - ${SEO_DATA_DIR:-./data/seo}:/data
+    deploy:
+      resources:
+        limits:
+          # Chromium is hungry — give the opt-in engine real headroom. Still
+          # one-shot, so this RAM is used only while an audit is actually running.
+          memory: 1024M
+
+# ---------------------------------------------------------------------------
+# Shared network. Declared so this file merges cleanly with the base compose file
+# (which supplies the subnet/IPAM). The name MUST match the base file — do NOT
+# invent a new network. Both jobs only ever touch `internal` (for outbound egress
+# to the operator's own sites); neither is placed on `proxy` and neither publishes
+# a host port.
+# ---------------------------------------------------------------------------
+networks:
+  internal:
+    name: ${INTERNAL_NETWORK_NAME:-pi_internal}
+    driver: bridge
